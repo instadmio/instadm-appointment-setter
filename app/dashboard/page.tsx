@@ -56,6 +56,12 @@ export default async function Dashboard() {
                     <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
                         Welcome, {user.email}
                     </h2>
+                    <p className="mt-2 text-sm text-gray-500">
+                        <strong>Your Webhook URL:</strong>{' '}
+                        <code className="bg-gray-100 px-2 py-1 rounded text-xs break-all">
+                            {process.env.NEXT_PUBLIC_APP_URL || 'https://instadm-appointment-setter.vercel.app'}/api/webhook/{user.id}
+                        </code>
+                    </p>
                 </div>
             </div>
 
