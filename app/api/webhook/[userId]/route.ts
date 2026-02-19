@@ -12,9 +12,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
     const supabase = await createClient();
     const { userId } = await params;
 
+    // Helper: Log to DB
+    const logEvent = async (level: 'info' | 'error' | 'success', event: string, details: any) => {
+        try {
+            await supabase.from('webhook_logs').insert({
+                user_id: userId,
+                level,
+                event,
+                details
+            });
+        } catch (err) {
+            console.error('Logging Error:', err);
+        }
+    };
+
     try {
         // 1. Fetch Config from DB
-        // For now, we fetch from a mocked source or env if DB is empty
         let config: any = {
             prompt_data: {
                 agent_name: 'InstaDM Agent',
@@ -22,7 +35,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
             },
             openai_key: process.env.OPENAI_API_KEY || '',
             manychat_key: process.env.MANYCHAT_API_KEY || '',
-            // zep_key? (using env for now)
         };
 
         const { data: dbConfig } = await supabase
@@ -32,7 +44,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
             .single();
 
         if (dbConfig) {
-            // Only override if dbConfig has a value, otherwise keep the env value (if user saved empty string)
             const resolvedOpenAI = dbConfig.openai_key || config.openai_key;
             const resolvedManyChat = dbConfig.manychat_key || config.manychat_key;
             const resolvedPromptData = dbConfig.prompt_data || config.prompt_data;
@@ -47,50 +58,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
         }
 
         if (!config.openai_key || !config.manychat_key) {
-            console.error(`[Agent ${userId}] Missing API Keys. OpenAI: ${!!config.openai_key}, ManyChat: ${!!config.manychat_key}`);
-            return NextResponse.json({ error: 'Configuration incomplete', details: { openai: !!config.openai_key, manychat: !!config.manychat_key } }, { status: 500 });
+            await logEvent('error', 'Missing Keys', { openai: !!config.openai_key, manychat: !!config.manychat_key });
+            return NextResponse.json({ error: 'Configuration incomplete' }, { status: 500 });
         }
 
         // 2. Parse Webhook
         const body = await req.json();
+        await logEvent('info', 'Webhook Received', body);
+
         let { subscriber_id, message, first_name, username } = body;
 
-        // Map fields from common ManyChat payloads if exact matches aren't found
         subscriber_id = subscriber_id || body.sessionId || body.id;
         first_name = first_name || body.name;
-
-        // Note: ManyChat webhook usually sends 'username' if available, otherwise we might need to fetch it.
-        // If message is missing, check specific ManyChat fields like 'last_input_text'
         message = message || body.last_input_text;
 
         if (!subscriber_id || !message) {
-            console.error('[Webhook] Invalid Payload:', body);
+            await logEvent('error', 'Invalid Payload', body);
             return NextResponse.json({ error: 'Invalid Payload' }, { status: 400 });
         }
 
-        // 3. Respond Immediately to Prevent Timeout
-        // ManyChat waits max 10s. AI + Scraping takes longer.
-        // We start the background process and return 200 OK immediately.
-
+        // 3. Respond Immediately (Background Process)
         (async () => {
             try {
-                // 3a. Initialize Services
                 const agent = new AgentService(config);
                 const scraper = new ScrapeService(process.env.DATAPRISM_API_KEY || '');
                 const manychat = new ManyChatService(config.manychat_key);
 
-                // 3b. Lead Analysis Flow (Simplified)
+                // Lead Analysis
                 const subscriber = await manychat.getSubscriber(subscriber_id.toString());
                 const customFields = subscriber?.custom_fields || {};
                 const hasAnalyzed = customFields['icp_status'] || customFields['analysis_complete'];
 
                 if (!hasAnalyzed && username) {
-                    console.log(`[Agent ${userId}] Analyzing lead: ${username}`);
+                    await logEvent('info', 'Analyzing User', { username });
                     const profileData = await scraper.scrapeProfile(username);
 
                     if (profileData) {
                         const analysis = await agent.analyzeLead(profileData);
-                        console.log(`[Agent ${userId}] Analysis complete for ${username}`);
                         const isICP = analysis ? analysis.includes('ICP: Yes') : false;
 
                         await manychat.setCustomFields(subscriber_id.toString(), {
@@ -98,31 +102,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
                             analysis_raw: analysis ? analysis.substring(0, 2000) : '',
                             params: 'analyzed'
                         });
-                        console.log(`[Agent ${userId}] ManyChat fields updated for ${subscriber_id}`);
+                        await logEvent('success', 'Analysis Complete', { isICP });
                     }
                 }
 
-                // 3c. Chat Flow
-                // Use Instagram handle (username) as Zep Session ID for readability, fallback to subscriber_id
+                // Chat Flow
                 const zepId = username || subscriber_id.toString();
+                const reply = await agent.processMessage(userId, zepId, message, { first_name, username });
 
-                console.log(`[Agent ${userId}] Processing message from ${subscriber_id} (Zep ID: ${zepId})`);
-                const reply = await agent.processMessage(
-                    userId,
-                    zepId,
-                    message,
-                    { first_name, username }
-                );
-                console.log(`[Agent ${userId}] AI Reply generated: ${reply}`);
-
-                // 3d. Send Reply
                 if (reply) {
-                    console.log(`[Agent ${userId}] Sending reply to ${subscriber_id}`);
                     await manychat.sendContent(subscriber_id.toString(), [reply]);
-                    console.log(`[Agent ${userId}] Reply sent successfully`);
+                    await logEvent('success', 'Reply Sent', { reply });
+                } else {
+                    await logEvent('info', 'No Reply Generated', { message });
                 }
+
             } catch (bgError: any) {
-                console.error(`[Agent ${userId}] Background Process Error:`, bgError);
+                console.error(`[Agent ${userId}] Background Error:`, bgError);
+                await logEvent('error', 'Background Process Failed', { error: bgError.message });
             }
         })();
 
@@ -130,6 +127,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
 
     } catch (e: any) {
         console.error('Webhook Error:', e);
+        // Can't use user_id if we failed before fetching it? Wait, we have userId from params.
+        // But logging helper is defined inside.
+        // We can just try to log if possible.
+        try {
+            await supabase.from('webhook_logs').insert({
+                user_id: userId,
+                level: 'error',
+                event: 'Fatal Webhook Error',
+                details: { error: e.message }
+            });
+        } catch { }
+
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }

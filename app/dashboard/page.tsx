@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import AgentForm from '@/components/AgentForm'
+import LogsTable from '@/components/LogsTable'
 
 export default async function Dashboard() {
     const supabase = await createClient()
@@ -14,9 +15,6 @@ export default async function Dashboard() {
     }
 
     // 1. Fetch Field Definitions
-    // In a real app, we fetch from DB. For now, we use the ones defined in schema.sql
-    // const { data: fields } = await supabase.from('field_definitions').select('*').order('order');
-
     const fields = [
         { key: 'agent_name', label: 'Agent Name', type: 'text', default_value: 'AI Assistant', order: 10 },
         { key: 'agent_backstory', label: 'Agent Persona / Backstory', type: 'textarea', default_value: '', order: 20 },
@@ -49,7 +47,7 @@ export default async function Dashboard() {
     const mutableFields: any[] = [...fields];
 
     return (
-        <>
+        <div className="max-w-4xl mx-auto">
             <div className="md:flex md:items-center md:justify-between mb-8">
                 <div className="flex-1 min-w-0">
                     <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
@@ -63,6 +61,16 @@ export default async function Dashboard() {
                 fields={mutableFields}
                 userId={user.id}
             />
-        </>
+
+            <div className="mt-12 pt-8 border-t border-gray-200">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-medium leading-6 text-gray-900">
+                        Webhook Activity Logs
+                    </h3>
+                </div>
+                {/* @ts-ignore */}
+                <LogsTable userId={user.id} />
+            </div>
+        </div>
     )
 }
