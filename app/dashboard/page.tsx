@@ -1,7 +1,10 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import AgentForm from '@/components/AgentForm'
 import LogsTable from '@/components/LogsTable'
+
+export const dynamic = 'force-dynamic'
 
 export default async function Dashboard() {
     const supabase = await createClient()
@@ -67,6 +70,14 @@ export default async function Dashboard() {
                     <h3 className="text-lg font-medium leading-6 text-gray-900">
                         Webhook Activity Logs
                     </h3>
+                    <form action={async () => {
+                        'use server';
+                        revalidatePath('/dashboard');
+                    }}>
+                        <button type="submit" className="text-indigo-600 hover:text-indigo-900 text-sm font-medium">
+                            Refresh Logs ↻
+                        </button>
+                    </form>
                 </div>
                 {/* @ts-ignore */}
                 <LogsTable userId={user.id} />
