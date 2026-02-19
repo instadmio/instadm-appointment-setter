@@ -95,53 +95,55 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
             return NextResponse.json({ error: 'Invalid Payload' }, { status: 400 });
         }
 
-        // 3. Respond Immediately (Background Process)
-        (async () => {
-            try {
-                const agent = new AgentService(config);
-                const scraper = new ScrapeService(process.env.DATAPRISM_API_KEY || '');
-                const manychat = new ManyChatService(config.manychat_key);
+        // 3. Process synchronously (Vercel kills serverless functions after response is sent)
+        const agent = new AgentService(config);
+        const scraper = new ScrapeService(process.env.DATAPRISM_API_KEY || '');
+        const manychat = new ManyChatService(config.manychat_key);
 
-                // Lead Analysis
-                const subscriber = await manychat.getSubscriber(subscriber_id.toString());
-                const customFields = subscriber?.custom_fields || {};
-                const hasAnalyzed = customFields['icp_status'] || customFields['analysis_complete'];
+        // Lead Analysis
+        try {
+            const subscriber = await manychat.getSubscriber(subscriber_id.toString());
+            const customFields = subscriber?.custom_fields || {};
+            const hasAnalyzed = customFields['icp_status'] || customFields['analysis_complete'];
 
-                if (!hasAnalyzed && username) {
-                    await logEvent('info', 'Analyzing User', { username });
-                    const profileData = await scraper.scrapeProfile(username);
+            if (!hasAnalyzed && username) {
+                await logEvent('info', 'Analyzing User', { username });
+                const profileData = await scraper.scrapeProfile(username);
 
-                    if (profileData) {
-                        const analysis = await agent.analyzeLead(profileData);
-                        const isICP = analysis ? analysis.includes('ICP: Yes') : false;
+                if (profileData) {
+                    const analysis = await agent.analyzeLead(profileData);
+                    const isICP = analysis ? analysis.includes('ICP: Yes') : false;
 
-                        await manychat.setCustomFields(subscriber_id.toString(), {
-                            icp_status: isICP ? 'Qualified' : 'Unqualified',
-                            analysis_raw: analysis ? analysis.substring(0, 2000) : '',
-                            params: 'analyzed'
-                        });
-                        await logEvent('success', 'Analysis Complete', { isICP });
-                    }
+                    await manychat.setCustomFields(subscriber_id.toString(), {
+                        icp_status: isICP ? 'Qualified' : 'Unqualified',
+                        analysis_raw: analysis ? analysis.substring(0, 2000) : '',
+                        params: 'analyzed'
+                    });
+                    await logEvent('success', 'Analysis Complete', { isICP });
                 }
-
-                // Chat Flow
-                const zepId = username || subscriber_id.toString();
-                const reply = await agent.processMessage(userId, zepId, message, { first_name, username });
-
-                if (reply) {
-                    await manychat.sendContent(subscriber_id.toString(), [reply]);
-                    await logEvent('success', 'Reply Sent', { reply });
-                } else {
-                    await logEvent('info', 'No Reply Generated', { message });
-                }
-
-            } catch (bgError: any) {
-                console.error(`[Agent ${userId}] Background Error:`, bgError);
-                await logEvent('error', 'Background Process Failed', { error: bgError.message });
             }
-        })();
+        } catch (analysisError: any) {
+            await logEvent('error', 'Analysis Failed', { error: analysisError.message });
+            // Continue to chat flow even if analysis fails
+        }
 
-        return NextResponse.json({ status: 'queued', message: 'Processing in background' });
+        // Chat Flow
+        try {
+            const zepId = username || subscriber_id.toString();
+            const reply = await agent.processMessage(userId, zepId, message, { first_name, username });
+
+            if (reply) {
+                await manychat.sendContent(subscriber_id.toString(), [reply]);
+                await logEvent('success', 'Reply Sent', { reply });
+                return NextResponse.json({ status: 'success', reply });
+            } else {
+                await logEvent('info', 'No Reply Generated', { message });
+                return NextResponse.json({ status: 'success', message: 'No reply generated' });
+            }
+        } catch (chatError: any) {
+            await logEvent('error', 'Chat Flow Failed', { error: chatError.message });
+            return NextResponse.json({ status: 'error', error: chatError.message }, { status: 500 });
+        }
 
     } catch (e: any) {
         console.error('Webhook Error:', e);
