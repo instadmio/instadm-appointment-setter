@@ -1,0 +1,27 @@
+
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+async function getKey() {
+    const { data, error } = await supabase
+        .from('agent_configs')
+        .select('openai_key')
+        .neq('openai_key', '')
+        .limit(1);
+
+    if (error) {
+        console.error('Error:', error);
+    } else if (data && data.length > 0) {
+        console.log('FOUND_KEY:', data[0].openai_key);
+    } else {
+        console.log('No key found in DB');
+    }
+}
+
+getKey();
