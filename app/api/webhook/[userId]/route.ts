@@ -5,11 +5,29 @@ import { ManyChatService } from '@/services/manychat.service';
 import { createServiceClient } from '@/utils/supabase/service';
 
 export async function GET() {
-    return NextResponse.json({ status: 'active', message: 'InstaDM Webhook is online' });
+    return NextResponse.json({
+        status: 'active',
+        message: 'InstaDM Webhook is online',
+        env_check: {
+            NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+            NEXT_PUBLIC_SUPABASE_ANON_KEY: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+            SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+            OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+            MANYCHAT_API_KEY: !!process.env.MANYCHAT_API_KEY,
+            ZEP_API_KEY: !!process.env.ZEP_API_KEY,
+            ZEP_API_URL: !!process.env.ZEP_API_URL,
+            DATAPRISM_API_KEY: !!process.env.DATAPRISM_API_KEY,
+        }
+    });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
-    const supabase = createServiceClient();
+    let supabase;
+    try {
+        supabase = createServiceClient();
+    } catch (e: any) {
+        return NextResponse.json({ error: 'Service client init failed', detail: e.message }, { status: 500 });
+    }
     const { userId } = await params;
 
     // Helper: Log to DB
