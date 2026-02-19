@@ -35,7 +35,7 @@ export class AgentService {
             // Thread might not exist yet, which is fine
             console.log(`Thread ${sessionId} not found or empty. Attempting creation...`);
             try {
-                await this.zep.thread.add({ threadId: sessionId, userId: sessionId });
+                await this.zep.thread.create({ threadId: sessionId, userId: sessionId });
                 console.log(`Thread ${sessionId} created successfully.`);
             } catch (createErr) {
                 console.error(`Failed to create thread ${sessionId}:`, createErr);
@@ -89,8 +89,7 @@ export class AgentService {
                 // Try to create the session/thread associated with the user
                 // Re-reading docs (mental check): Zep Cloud v2 uses 'session'. 'thread' might be legacy mapping or specific helper.
                 // Safest bet: Just wrap addMessages in try-catch to not block the reply.
-                // But for creation:
-                await this.zep.thread.add({ threadId: sessionId, userId: sessionId });
+                await this.zep.thread.create({ threadId: sessionId, userId: sessionId });
             } catch (createError) {
                 console.log('Thread creation marked as existing or failed:', createError);
             }
