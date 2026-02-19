@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AgentService } from '@/services/agent.service';
 import { ScrapeService } from '@/services/scrape.service';
 import { ManyChatService } from '@/services/manychat.service';
-import { createClient } from '@/utils/supabase/server';
+import { createServiceClient } from '@/utils/supabase/service';
 
 export async function GET() {
     return NextResponse.json({ status: 'active', message: 'InstaDM Webhook is online' });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { userId } = await params;
 
     // Helper: Log to DB
