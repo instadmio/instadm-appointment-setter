@@ -122,4 +122,11 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
 }
 
 // Ensure QStash Signature is valid before processing to prevent unauthorized triggers
-export const POST = verifySignatureAppRouter(handler);
+export const POST = async (req: NextRequest, ctx: { params: Promise<{ userId: string }> }) => {
+    if (!process.env.QSTASH_CURRENT_SIGNING_KEY || !process.env.QSTASH_NEXT_SIGNING_KEY) {
+        console.error("QSTASH_CURRENT_SIGNING_KEY and QSTASH_NEXT_SIGNING_KEY must be set");
+        return NextResponse.json({ error: "QStash Configuration missing" }, { status: 500 });
+    }
+    const verifiedHandler = verifySignatureAppRouter(handler);
+    return verifiedHandler(req, ctx as any);
+};
