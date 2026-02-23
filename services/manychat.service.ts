@@ -41,9 +41,10 @@ export class ManyChatService {
                     { headers: this.headers }
                 );
 
-                // Realistic delay between messages
+                // Realistic typing delay between messages (3-5 seconds)
                 if (i < messages.length - 1) {
-                    await new Promise(res => setTimeout(res, 2500));
+                    const delay = 3000 + Math.floor(Math.random() * 2000);
+                    await new Promise(res => setTimeout(res, delay));
                 }
             }
         } catch (error: unknown) {

@@ -105,7 +105,16 @@ export class AgentService {
         }
 
         const rawReply = responseMessage.content || '';
-        const replies = rawReply.split('|||').map(s => s.trim()).filter(Boolean);
+        let replies: string[];
+
+        if (rawReply.includes('|||')) {
+            replies = rawReply.split('|||').map(s => s.trim()).filter(Boolean);
+        } else if (this.config.reply_mode === 'conversational') {
+            // Fallback: AI didn't use the delimiter — split into conversational chunks
+            replies = this.splitIntoConversationalChunks(rawReply);
+        } else {
+            replies = [rawReply.trim()].filter(Boolean);
+        }
 
         // 5. Save to Memory
         try {
@@ -243,6 +252,31 @@ export class AgentService {
                 },
             }
         ];
+    }
+
+    private splitIntoConversationalChunks(text: string): string[] {
+        // Split a long reply into short, DM-style messages
+        // Strategy: split on sentence boundaries, then group into chunks of 1-2 sentences
+        const sentences = text
+            .replace(/([.!?])\s+/g, '$1|||')
+            .split('|||')
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        if (sentences.length <= 1) return [text.trim()];
+
+        // Group into chunks of 1-2 sentences each to feel conversational
+        const chunks: string[] = [];
+        let i = 0;
+        while (i < sentences.length) {
+            // Randomly group 1 or 2 sentences per message for natural variation
+            const groupSize = (sentences.length - i > 2 && Math.random() > 0.4) ? 1 : Math.min(2, sentences.length - i);
+            const chunk = sentences.slice(i, i + groupSize).join(' ');
+            if (chunk.length > 0) chunks.push(chunk);
+            i += groupSize;
+        }
+
+        return chunks.length > 0 ? chunks : [text.trim()];
     }
 
     private buildSystemPrompt(data: Record<string, string>, replyMode: string = 'single_block', hasCalendar: boolean = false): string {
