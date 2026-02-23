@@ -203,7 +203,7 @@ export class AgentService {
                 type: 'function',
                 function: {
                     name: 'check_calendar_availability',
-                    description: 'Checks the calendar and returns available time slots. Call this with a 3-day range (today through 2 days from now, 9am-5pm) when the prospect wants to book. Today\'s date is ' + new Date().toISOString(),
+                    description: 'Checks the calendar and returns available time slots. Call this with a 2-day range starting tomorrow (9am-5pm) when the prospect wants to book. Today\'s date is ' + new Date().toISOString(),
                     parameters: {
                         type: 'object',
                         properties: {
@@ -253,15 +253,20 @@ export class AgentService {
     }
 
     private formatAvailabilityResult(busySlots: { start: string; end: string }[], timeMin: string, timeMax: string): string {
-        // Compute available 1-hour slots during business hours (9am-5pm) for each day in the range
-        const startDate = new Date(timeMin);
+        // Compute available 1-hour slots during business hours (9am-5pm)
+        // Only check tomorrow and the day after (skip today)
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+
         const endDate = new Date(timeMax);
         const availableSlots: string[] = [];
 
-        const current = new Date(startDate);
-        current.setHours(0, 0, 0, 0);
+        const current = new Date(tomorrow);
 
-        while (current <= endDate && availableSlots.length < 9) {
+        let daysChecked = 0;
+        while (current <= endDate && daysChecked < 2) {
             const dayStr = current.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
             for (let hour = 9; hour < 17; hour++) {
@@ -269,9 +274,6 @@ export class AgentService {
                 slotStart.setHours(hour, 0, 0, 0);
                 const slotEnd = new Date(current);
                 slotEnd.setHours(hour + 1, 0, 0, 0);
-
-                // Skip if slot is in the past
-                if (slotStart < new Date()) continue;
 
                 // Check if this slot overlaps with any busy period
                 const isBusy = busySlots.some(busy => {
@@ -286,13 +288,14 @@ export class AgentService {
                 }
             }
             current.setDate(current.getDate() + 1);
+            daysChecked++;
         }
 
         if (availableSlots.length === 0) {
             return 'No available slots found in the requested time range. Ask the prospect if another date range works.';
         }
 
-        // Pick the best slot per day (first available) to present as options
+        // Pick 1 slot per day (first available)
         const slotsByDay = new Map<string, string[]>();
         for (const slot of availableSlots) {
             const day = slot.split(' at ')[0];
@@ -301,12 +304,11 @@ export class AgentService {
         }
 
         const recommendations: string[] = [];
-        for (const [day, slots] of slotsByDay) {
-            // Suggest 1 slot per day (the first available one)
+        for (const [, slots] of slotsByDay) {
             recommendations.push(slots[0]);
         }
 
-        return `AVAILABLE TIME SLOTS (offer these to the prospect as numbered options):\n${recommendations.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nINSTRUCTIONS: Present these as simple numbered options. Let the prospect pick one. Do NOT suggest times outside this list.`;
+        return `AVAILABLE SLOTS:\n${recommendations.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nINSTRUCTIONS: Send EACH option as its own separate message. Example: first message "I've got a couple times open 👇", then a separate message "1. ${recommendations[0] || 'Tomorrow at 10am'}", then another separate message "2. ${recommendations[1] || 'Wednesday at 2pm'}". Then ask which works best in a final message. NEVER list both options in one message.`;
     }
 
     private splitIntoConversationalChunks(text: string): string[] {
@@ -385,11 +387,15 @@ export class AgentService {
       You have access to the user's Google Calendar. Today's Date and Time is: ${new Date().toISOString()}
 
       BOOKING FLOW — follow this exact sequence:
-      STEP 1: When the prospect is ready to book, call 'check_calendar_availability' for the next 3 days (today, tomorrow, day after). Use 9am-5pm range.
-      STEP 2: The tool will return numbered available slots. Present them as simple options: "Here are some times that work: 1) Tuesday at 10am  2) Wednesday at 2pm  3) Thursday at 11am — Which works best for you?"
+      STEP 1: When the prospect is ready to book, call 'check_calendar_availability' for tomorrow and the next day (2-day range, 9am-5pm).
+      STEP 2: The tool returns 2 options (1 per day). Send EACH option as its own separate message:
+        - First message: "I've got a couple times open 👇"
+        - Second message: "1. [Day] at [Time]"
+        - Third message: "2. [Day] at [Time]"
+        - Fourth message: "Which one works better for you?"
       STEP 3: When the prospect picks a time, ask for their full name and email address before booking.
       STEP 4: Once you have their name and email, call 'book_appointment' with their details in the description.
-      STEP 5: Confirm the booking in a friendly way. Do NOT send any links or URLs — just say something like "You're all booked in for [day] at [time]! Looking forward to it 🙌"
+      STEP 5: Confirm the booking in a friendly way. Do NOT send any links or URLs — just say "You're all booked in for [day] at [time]! Looking forward to it 🙌"
 
       RULES:
       - NEVER suggest a time without checking the calendar first.
