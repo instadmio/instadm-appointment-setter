@@ -76,12 +76,10 @@ export class AgentService {
                 try {
                     if (functionCall.name === 'check_calendar_availability') {
                         const busySlots = await calendarService.checkAvailability(args.timeMin, args.timeMax);
-                        toolResult = busySlots.length === 0
-                            ? 'The calendar is completely free during this time.'
-                            : `The following slots are busy: ${JSON.stringify(busySlots)} (Advise the user to pick times around these busy slots).`;
+                        toolResult = this.formatAvailabilityResult(busySlots, args.timeMin, args.timeMax);
                     } else if (functionCall.name === 'book_appointment') {
                         const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
-                        toolResult = `Booking successful! Event Link: ${booking.htmlLink}`;
+                        toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${new Date(args.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
                     }
                 } catch (err: unknown) {
                     const errMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -205,7 +203,7 @@ export class AgentService {
                 type: 'function',
                 function: {
                     name: 'check_calendar_availability',
-                    description: 'Checks the users Google Calendar for busy slots between a specific start and end time. Always use this before offering or confirming a meeting time. Today\'s date is ' + new Date().toISOString(),
+                    description: 'Checks the calendar and returns available time slots. Call this with a 3-day range (today through 2 days from now, 9am-5pm) when the prospect wants to book. Today\'s date is ' + new Date().toISOString(),
                     parameters: {
                         type: 'object',
                         properties: {
@@ -226,13 +224,13 @@ export class AgentService {
                 type: 'function',
                 function: {
                     name: 'book_appointment',
-                    description: 'Books an appointment on the users Google Calendar. Call this when the customer explicitly agrees to a time slot.',
+                    description: 'Books an appointment on the calendar. Only call this AFTER the prospect has chosen a time AND provided their name and email.',
                     parameters: {
                         type: 'object',
                         properties: {
                             summary: {
                                 type: 'string',
-                                description: 'The title of the event (e.g., "Consultation Call with [Name]")',
+                                description: 'The title of the event, format: "Strategy Call — [Prospect Name]"',
                             },
                             startTime: {
                                 type: 'string',
@@ -240,18 +238,75 @@ export class AgentService {
                             },
                             endTime: {
                                 type: 'string',
-                                description: 'End time of the event (ISO format)',
+                                description: 'End time of the event (ISO format, typically 1 hour after start)',
                             },
                             description: {
                                 type: 'string',
-                                description: 'Notes regarding the meeting (e.g., Instagram Handle of the prospect)',
+                                description: 'Include: prospect name, email, Instagram handle, and any notes from the conversation',
                             },
                         },
-                        required: ['summary', 'startTime', 'endTime'],
+                        required: ['summary', 'startTime', 'endTime', 'description'],
                     },
                 },
             }
         ];
+    }
+
+    private formatAvailabilityResult(busySlots: { start: string; end: string }[], timeMin: string, timeMax: string): string {
+        // Compute available 1-hour slots during business hours (9am-5pm) for each day in the range
+        const startDate = new Date(timeMin);
+        const endDate = new Date(timeMax);
+        const availableSlots: string[] = [];
+
+        const current = new Date(startDate);
+        current.setHours(0, 0, 0, 0);
+
+        while (current <= endDate && availableSlots.length < 9) {
+            const dayStr = current.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+            for (let hour = 9; hour < 17; hour++) {
+                const slotStart = new Date(current);
+                slotStart.setHours(hour, 0, 0, 0);
+                const slotEnd = new Date(current);
+                slotEnd.setHours(hour + 1, 0, 0, 0);
+
+                // Skip if slot is in the past
+                if (slotStart < new Date()) continue;
+
+                // Check if this slot overlaps with any busy period
+                const isBusy = busySlots.some(busy => {
+                    const busyStart = new Date(busy.start);
+                    const busyEnd = new Date(busy.end);
+                    return slotStart < busyEnd && slotEnd > busyStart;
+                });
+
+                if (!isBusy) {
+                    const timeStr = slotStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    availableSlots.push(`${dayStr} at ${timeStr}`);
+                }
+            }
+            current.setDate(current.getDate() + 1);
+        }
+
+        if (availableSlots.length === 0) {
+            return 'No available slots found in the requested time range. Ask the prospect if another date range works.';
+        }
+
+        // Pick the best slot per day (first available) to present as options
+        const slotsByDay = new Map<string, string[]>();
+        for (const slot of availableSlots) {
+            const day = slot.split(' at ')[0];
+            if (!slotsByDay.has(day)) slotsByDay.set(day, []);
+            slotsByDay.get(day)!.push(slot);
+        }
+
+        const recommendations: string[] = [];
+        for (const [day, slots] of slotsByDay) {
+            // Suggest 1 slot per day (the first available one)
+            recommendations.push(slots[0]);
+        }
+
+        return `AVAILABLE TIME SLOTS (offer these to the prospect as numbered options):\n${recommendations.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nINSTRUCTIONS: Present these as simple numbered options. Let the prospect pick one. Do NOT suggest times outside this list.`;
     }
 
     private splitIntoConversationalChunks(text: string): string[] {
@@ -327,11 +382,21 @@ export class AgentService {
 
       ${hasCalendar ? `
       CALENDAR & BOOKING RULES (CRITICAL):
-      - You have access to the user's Google Calendar via Tools.
-      - ALWAYS call the 'check_calendar_availability' tool before suggesting specific dates or times to the prospect.
-      - Never double-book. Do not guess wait times. Base availability strictly on the tool's response.
-      - If a user agrees to a time, ALWAYS call the 'book_appointment' tool to secure the event on the calendar before confirming with the user.
-      - Today's Date and Time is: ${new Date().toISOString()}
+      You have access to the user's Google Calendar. Today's Date and Time is: ${new Date().toISOString()}
+
+      BOOKING FLOW — follow this exact sequence:
+      STEP 1: When the prospect is ready to book, call 'check_calendar_availability' for the next 3 days (today, tomorrow, day after). Use 9am-5pm range.
+      STEP 2: The tool will return numbered available slots. Present them as simple options: "Here are some times that work: 1) Tuesday at 10am  2) Wednesday at 2pm  3) Thursday at 11am — Which works best for you?"
+      STEP 3: When the prospect picks a time, ask for their full name and email address before booking.
+      STEP 4: Once you have their name and email, call 'book_appointment' with their details in the description.
+      STEP 5: Confirm the booking in a friendly way. Do NOT send any links or URLs — just say something like "You're all booked in for [day] at [time]! Looking forward to it 🙌"
+
+      RULES:
+      - NEVER suggest a time without checking the calendar first.
+      - NEVER book without collecting the prospect's name and email.
+      - NEVER share Google Calendar links, event URLs, or any links with the prospect.
+      - Only offer times that the tool returned as available.
+      - If no times work for the prospect, check the next 3 days.
       ` : ''}
     `;
     }
