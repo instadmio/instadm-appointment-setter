@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ManyChatSubscriber } from '@/types';
 
 export class ManyChatService {
     private apiKey: string;
@@ -15,10 +16,8 @@ export class ManyChatService {
         };
     }
 
-    async sendContent(subscriberId: string, messages: string[]) {
+    async sendContent(subscriberId: string, messages: string[]): Promise<void> {
         try {
-            // ManyChat often takes one message block at a time or an array
-            // We will send messages sequentially if multiple to ensure order
             for (let i = 0; i < messages.length; i++) {
                 const msg = messages[i];
                 console.log(`[ManyChat] Sending to ${subscriberId}: ${msg}`);
@@ -42,21 +41,20 @@ export class ManyChatService {
                     { headers: this.headers }
                 );
 
-                // Add a realistic 2.5s delay between messages if there are more following
+                // Realistic delay between messages
                 if (i < messages.length - 1) {
                     await new Promise(res => setTimeout(res, 2500));
                 }
             }
-        } catch (error: any) {
-            console.error('ManyChat Send Content Failed:', error.response?.data || error.message);
+        } catch (error: unknown) {
+            const errData = axios.isAxiosError(error) ? error.response?.data : (error instanceof Error ? error.message : error);
+            console.error('ManyChat Send Content Failed:', errData);
         }
     }
 
-    async setCustomFields(subscriberId: string, fields: Record<string, string | number | boolean>) {
+    async setCustomFields(subscriberId: string, fields: Record<string, string | number | boolean>): Promise<void> {
         try {
             for (const [key, value] of Object.entries(fields)) {
-                // Note: ManyChat API requires field_id usually, but sometimes field_name works if enabled
-                // Here we assume field_name for simplicity based on the n8n logic
                 await axios.post(
                     `${this.baseUrl}/subscriber/setCustomFieldByName`,
                     {
@@ -67,12 +65,13 @@ export class ManyChatService {
                     { headers: this.headers }
                 );
             }
-        } catch (error: any) {
-            console.error('ManyChat Set Fields Failed:', error.response?.data || error.message);
+        } catch (error: unknown) {
+            const errData = axios.isAxiosError(error) ? error.response?.data : (error instanceof Error ? error.message : error);
+            console.error('ManyChat Set Fields Failed:', errData);
         }
     }
 
-    async addTag(subscriberId: string, tagId: string | number) {
+    async addTag(subscriberId: string, tagId: string | number): Promise<void> {
         try {
             await axios.post(
                 `${this.baseUrl}/subscriber/addTag`,
@@ -82,25 +81,27 @@ export class ManyChatService {
                 },
                 { headers: this.headers }
             );
-        } catch (error: any) {
-            console.error('ManyChat Add Tag Failed:', error.response?.data || error.message);
+        } catch (error: unknown) {
+            const errData = axios.isAxiosError(error) ? error.response?.data : (error instanceof Error ? error.message : error);
+            console.error('ManyChat Add Tag Failed:', errData);
         }
     }
 
-    async getSubscriber(subscriberId: string) {
+    async getSubscriber(subscriberId: string): Promise<ManyChatSubscriber | null> {
         try {
             const response = await axios.get(
                 `${this.baseUrl}/subscriber/getInfo?subscriber_id=${subscriberId}`,
                 { headers: this.headers }
             );
-            return response.data.data;
-        } catch (error: any) {
-            console.error('ManyChat Get Subscriber Failed:', error.response?.data || error.message);
+            return response.data.data as ManyChatSubscriber;
+        } catch (error: unknown) {
+            const errData = axios.isAxiosError(error) ? error.response?.data : (error instanceof Error ? error.message : error);
+            console.error('ManyChat Get Subscriber Failed:', errData);
             return null;
         }
     }
 
-    async removeTag(subscriberId: string, tagId: string | number) {
+    async removeTag(subscriberId: string, tagId: string | number): Promise<void> {
         try {
             await axios.post(
                 `${this.baseUrl}/subscriber/removeTag`,
@@ -110,8 +111,9 @@ export class ManyChatService {
                 },
                 { headers: this.headers }
             );
-        } catch (error: any) {
-            console.error('ManyChat Remove Tag Failed:', error.response?.data || error.message);
+        } catch (error: unknown) {
+            const errData = axios.isAxiosError(error) ? error.response?.data : (error instanceof Error ? error.message : error);
+            console.error('ManyChat Remove Tag Failed:', errData);
         }
     }
 }

@@ -1,21 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { AgentService } from '@/services/agent.service';
 import { ScrapeService } from '@/services/scrape.service';
 import { ManyChatService } from '@/services/manychat.service';
 import { createServiceClient } from '@/utils/supabase/service';
 import { verifySignatureAppRouter } from '@upstash/qstash/dist/nextjs';
+import type { AgentConfig } from '@/types';
+
+// Zod schema for webhook payload — passthrough allows extra ManyChat fields
+const WebhookPayloadSchema = z.object({
+    subscriber_id: z.union([z.string(), z.number()]).optional(),
+    sessionId: z.string().optional(),
+    id: z.union([z.string(), z.number()]).optional(),
+    message: z.string().optional(),
+    last_input_text: z.string().optional(),
+    first_name: z.string().optional(),
+    name: z.string().optional(),
+    username: z.string().optional(),
+}).passthrough();
+
+const QStashBodySchema = z.object({
+    payload: WebhookPayloadSchema.optional(),
+}).passthrough();
 
 async function handler(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
     let supabase;
     try {
         supabase = createServiceClient();
-    } catch (e: any) {
-        return NextResponse.json({ error: 'Service client init failed', detail: e.message }, { status: 500 });
+    } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : 'Unknown error';
+        return NextResponse.json({ error: 'Service client init failed', detail: errMsg }, { status: 500 });
     }
     const { userId } = await params;
 
-    // Helper: Log to DB
-    const logEvent = async (level: 'info' | 'error' | 'success', event: string, details: any) => {
+    const logEvent = async (level: 'info' | 'error' | 'success', event: string, details: Record<string, unknown>) => {
         try {
             await supabase.from('webhook_logs').insert({
                 user_id: userId,
@@ -36,35 +54,45 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
             .eq('user_id', userId)
             .single();
 
-        if (!dbConfig || !dbConfig.openai_key || !dbConfig.manychat_key) {
-            await logEvent('error', 'Missing Keys or Config', { openai: !!dbConfig?.openai_key, manychat: !!dbConfig?.manychat_key });
-            return NextResponse.json({ error: 'Configuration incomplete' }, { status: 500 });
+        if (!dbConfig || !dbConfig.manychat_key) {
+            await logEvent('error', 'Missing Config', { hasConfig: !!dbConfig, manychat: !!dbConfig?.manychat_key });
+            return NextResponse.json({ error: 'Configuration incomplete. Please add your ManyChat API key.' }, { status: 500 });
         }
 
-        // 2. Parse Webhook
-        const body = await req.json();
-        const payload = body.payload || body; // Handle structure if forwarded dynamically
+        // 2. Parse & Validate Webhook Payload
+        const rawBody = await req.json();
+        const parseResult = QStashBodySchema.safeParse(rawBody);
+
+        if (!parseResult.success) {
+            await logEvent('error', 'Invalid Payload Schema', { errors: parseResult.error.flatten() });
+            return NextResponse.json({ error: 'Invalid payload format' }, { status: 400 });
+        }
+
+        const body = parseResult.data;
+        const raw = body.payload || body;
+        // Normalize to a plain record for safe field access
+        const payload = raw as Record<string, unknown>;
 
         await logEvent('info', 'QStash Worker Started', payload);
 
-        let { subscriber_id, message, first_name, username } = payload;
+        // Normalize field names from different ManyChat payload formats
+        const subscriberId = String(payload.subscriber_id || payload.sessionId || payload.id || '');
+        const message = String(payload.message || payload.last_input_text || '');
+        const firstName = String(payload.first_name || payload.name || '');
+        const username = String(payload.username || '');
 
-        subscriber_id = subscriber_id || payload.sessionId || payload.id;
-        first_name = first_name || payload.name;
-        message = message || payload.last_input_text;
-
-        if (!subscriber_id || !message) {
-            await logEvent('error', 'Invalid Payload', payload);
-            return NextResponse.json({ error: 'Invalid Payload' }, { status: 400 });
+        if (!subscriberId || !message) {
+            await logEvent('error', 'Invalid Payload', payload as Record<string, unknown>);
+            return NextResponse.json({ error: 'Missing subscriber_id or message' }, { status: 400 });
         }
 
-        const agent = new AgentService(dbConfig);
+        const agent = new AgentService(dbConfig as AgentConfig);
         const scraper = new ScrapeService(process.env.DATAPRISM_API_KEY || '');
         const manychat = new ManyChatService(dbConfig.manychat_key);
 
         // Lead Analysis
         try {
-            const subscriber = await manychat.getSubscriber(subscriber_id.toString());
+            const subscriber = await manychat.getSubscriber(subscriberId);
             const customFields = subscriber?.custom_fields || {};
             const hasAnalyzed = customFields['icp_status'] || customFields['analysis_complete'];
 
@@ -76,7 +104,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
                     const analysis = await agent.analyzeLead(profileData);
                     const isICP = analysis ? analysis.includes('ICP: Yes') : false;
 
-                    await manychat.setCustomFields(subscriber_id.toString(), {
+                    await manychat.setCustomFields(subscriberId, {
                         icp_status: isICP ? 'Qualified' : 'Unqualified',
                         analysis_raw: analysis ? analysis.substring(0, 2000) : '',
                         params: 'analyzed'
@@ -84,49 +112,51 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
                     await logEvent('success', 'Analysis Complete', { isICP });
                 }
             }
-        } catch (analysisError: any) {
-            await logEvent('error', 'Analysis Failed', { error: analysisError.message });
+        } catch (analysisError: unknown) {
+            const errMsg = analysisError instanceof Error ? analysisError.message : 'Unknown error';
+            await logEvent('error', 'Analysis Failed', { error: errMsg });
         }
 
         // Chat Flow & Tools
         try {
-            const zepId = username || subscriber_id.toString();
-            const replies = await agent.processMessage(userId, zepId, message, { first_name, username });
+            const zepId = username || subscriberId;
+            const replies = await agent.processMessage(userId, zepId, message, { first_name: firstName, username });
 
             if (replies && replies.length > 0) {
-                await manychat.sendContent(subscriber_id.toString(), replies);
+                await manychat.sendContent(subscriberId, replies);
                 await logEvent('success', 'Reply Sent', { replies });
                 return NextResponse.json({ status: 'success', replies });
             } else {
                 await logEvent('info', 'No Reply Generated', { message });
                 return NextResponse.json({ status: 'success', message: 'No reply generated' });
             }
-        } catch (chatError: any) {
-            await logEvent('error', 'Chat Flow Failed', { error: chatError.message });
-            return NextResponse.json({ status: 'error', error: chatError.message }, { status: 500 });
+        } catch (chatError: unknown) {
+            const errMsg = chatError instanceof Error ? chatError.message : 'Unknown error';
+            await logEvent('error', 'Chat Flow Failed', { error: errMsg });
+            return NextResponse.json({ status: 'error', error: errMsg }, { status: 500 });
         }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : 'Unknown error';
         console.error('Worker Error:', e);
         try {
             await supabase.from('webhook_logs').insert({
                 user_id: userId,
                 level: 'error',
                 event: 'Fatal Worker Error',
-                details: { error: e.message }
+                details: { error: errMsg }
             });
         } catch { }
 
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: errMsg }, { status: 500 });
     }
 }
 
-// Ensure QStash Signature is valid before processing to prevent unauthorized triggers
 export const POST = async (req: NextRequest, ctx: { params: Promise<{ userId: string }> }) => {
     if (!process.env.QSTASH_CURRENT_SIGNING_KEY || !process.env.QSTASH_NEXT_SIGNING_KEY) {
         console.error("QSTASH_CURRENT_SIGNING_KEY and QSTASH_NEXT_SIGNING_KEY must be set");
         return NextResponse.json({ error: "QStash Configuration missing" }, { status: 500 });
     }
     const verifiedHandler = verifySignatureAppRouter(handler);
-    return verifiedHandler(req, ctx as any);
+    return verifiedHandler(req, ctx as unknown as { params: Promise<{ userId: string }> });
 };

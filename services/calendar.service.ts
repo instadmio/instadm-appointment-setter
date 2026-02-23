@@ -1,3 +1,5 @@
+import type { CalendarBusySlot, CalendarEvent } from '@/types';
+
 export class CalendarService {
     private refreshToken: string;
 
@@ -24,7 +26,7 @@ export class CalendarService {
         return data.access_token;
     }
 
-    async checkAvailability(timeMin: string, timeMax: string) {
+    async checkAvailability(timeMin: string, timeMax: string): Promise<CalendarBusySlot[]> {
         try {
             const accessToken = await this.getAccessToken();
 
@@ -49,13 +51,14 @@ export class CalendarService {
                 return calendars.primary.busy || [];
             }
             return [];
-        } catch (error: any) {
-            console.error('Error checking calendar availability:', error.message);
+        } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Error checking calendar availability:', errMsg);
             throw new Error('Could not check calendar availability.');
         }
     }
 
-    async createBooking(summary: string, startTime: string, endTime: string, description?: string) {
+    async createBooking(summary: string, startTime: string, endTime: string, description?: string): Promise<CalendarEvent> {
         try {
             const accessToken = await this.getAccessToken();
 
@@ -79,9 +82,10 @@ export class CalendarService {
             const data = await response.json();
             if (data.error) throw new Error(data.error.message);
 
-            return data;
-        } catch (error: any) {
-            console.error('Error creating calendar event:', error.message);
+            return data as CalendarEvent;
+        } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Error creating calendar event:', errMsg);
             throw new Error('Could not create calendar event.');
         }
     }

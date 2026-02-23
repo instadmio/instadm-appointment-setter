@@ -1,10 +1,11 @@
 import { createClient } from '@/utils/supabase/server'
+import type { WebhookLog } from '@/types'
 
 export default async function LogsTable({ userId }: { userId: string }) {
     const supabase = await createClient()
 
-    let logs: any[] = [];
-    let error = null;
+    let logs: WebhookLog[] = [];
+    let error: string | null = null;
 
     try {
         const { data, error: dbError } = await supabase
@@ -15,11 +16,11 @@ export default async function LogsTable({ userId }: { userId: string }) {
             .limit(20);
 
         if (dbError) throw dbError;
-        logs = data || [];
-    } catch (e: any) {
-        // If table doesn't exist yet, we don't want to crash the dashboard
-        console.error('Error fetching logs:', e);
-        error = e.message;
+        logs = (data || []) as WebhookLog[];
+    } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : 'Unknown error';
+        console.error('Error fetching logs:', errMsg);
+        error = errMsg;
     }
 
     if (error) {
@@ -29,7 +30,7 @@ export default async function LogsTable({ userId }: { userId: string }) {
                     <div className="ml-3">
                         <h3 className="text-sm font-medium text-yellow-800">Logs not available</h3>
                         <div className="mt-2 text-sm text-yellow-700">
-                            <p>Please run the database migration to create the 'webhook_logs' table.</p>
+                            <p>Please run the database migration to create the webhook_logs table.</p>
                         </div>
                     </div>
                 </div>
@@ -45,7 +46,7 @@ export default async function LogsTable({ userId }: { userId: string }) {
         <div className="flex flex-col">
             <div className="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
                 <div className="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
-                    <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
+                    <div className="shadow-sm overflow-hidden border border-gray-200 rounded-2xl">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -70,7 +71,7 @@ export default async function LogsTable({ userId }: { userId: string }) {
                                             {new Date(log.created_at).toLocaleTimeString()}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                                                 ${log.level === 'error' ? 'bg-red-100 text-red-800' :
                                                     log.level === 'success' ? 'bg-green-100 text-green-800' :
                                                         'bg-blue-100 text-blue-800'}`}>

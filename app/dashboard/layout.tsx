@@ -2,7 +2,7 @@
 
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, User } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 
 export default function DashboardLayout({
     children,
@@ -24,13 +24,13 @@ export default function DashboardLayout({
                     <div className="flex justify-between h-16">
                         <div className="flex">
                             <div className="flex-shrink-0 flex items-center">
-                                <span className="text-xl font-bold text-gray-800">InstaDM App</span>
+                                <span className="text-xl font-bold ig-gradient-text">InstaDM</span>
                             </div>
                         </div>
                         <div className="flex items-center">
                             <button
                                 onClick={signOut}
-                                className="ml-4 px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 flex items-center gap-2"
+                                className="ml-4 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100 flex items-center gap-2 transition-colors"
                             >
                                 <LogOut size={16} />
                                 Sign out

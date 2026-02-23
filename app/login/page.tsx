@@ -53,47 +53,58 @@ export default async function Login({
     }
 
     return (
-        <div className="flex-1 flex flex-col w-full px-8 sm:max-w-md justify-center gap-2 h-screen mx-auto">
-            <form
-                className="animate-in flex-1 flex flex-col w-full justify-center gap-2 text-foreground"
-                action={signIn}
-            >
-                <h1 className="text-2xl font-bold mb-4">InstaDM Appointment Setter</h1>
-
-                <label className="text-md" htmlFor="email">
-                    Email
-                </label>
-                <input
-                    className="rounded-md px-4 py-2 bg-inherit border mb-6"
-                    name="email"
-                    placeholder="you@example.com"
-                    required
-                />
-                <label className="text-md" htmlFor="password">
-                    Password
-                </label>
-                <input
-                    className="rounded-md px-4 py-2 bg-inherit border mb-6"
-                    type="password"
-                    name="password"
-                    placeholder="••••••••"
-                    required
-                />
-                <button className="bg-blue-600 rounded-md px-4 py-2 text-white mb-2">
-                    Sign In
-                </button>
-                <button
-                    formAction={signUp}
-                    className="border border-foreground/20 rounded-md px-4 py-2 text-foreground mb-2"
-                >
-                    Sign Up
-                </button>
-                {message && (
-                    <p className="mt-4 p-4 bg-foreground/10 text-center text-red-500 rounded-md">
-                        {message}
+        <div className="min-h-screen bg-white flex flex-col justify-center">
+            <div className="sm:mx-auto sm:w-full sm:max-w-md">
+                <div className="text-center mb-8">
+                    <h1 className="text-4xl font-bold ig-gradient-text">InstaDM</h1>
+                    <p className="mt-2 text-sm text-gray-500">
+                        AI Appointment Setter
                     </p>
-                )}
-            </form>
+                </div>
+
+                <div className="bg-white py-8 px-6 shadow-sm rounded-2xl border border-gray-100 sm:px-10">
+                    <form className="space-y-5" action={signIn}>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700" htmlFor="email">
+                                Email
+                            </label>
+                            <input
+                                className="mt-1 block w-full rounded-xl border border-gray-300 px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black sm:text-sm"
+                                name="email"
+                                type="email"
+                                placeholder="you@example.com"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700" htmlFor="password">
+                                Password
+                            </label>
+                            <input
+                                className="mt-1 block w-full rounded-xl border border-gray-300 px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black sm:text-sm"
+                                type="password"
+                                name="password"
+                                placeholder="••••••••"
+                                required
+                            />
+                        </div>
+                        <button className="w-full flex justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-black hover:bg-gray-800 transition-all hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black">
+                            Sign In
+                        </button>
+                        <button
+                            formAction={signUp}
+                            className="w-full flex justify-center py-2.5 px-4 border border-black rounded-xl text-sm font-medium text-black bg-white hover:bg-black hover:text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
+                        >
+                            Create Account
+                        </button>
+                        {message && (
+                            <p className="mt-2 p-3 bg-red-50 text-center text-sm text-red-600 rounded-xl">
+                                {message}
+                            </p>
+                        )}
+                    </form>
+                </div>
+            </div>
         </div>
     )
 }

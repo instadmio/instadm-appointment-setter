@@ -72,8 +72,9 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.redirect(new URL('/dashboard?calendar=success', baseUrl));
 
-    } catch (error: any) {
-        console.error("Google Auth Exchange Error:", error.message);
+    } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        console.error("Google Auth Exchange Error:", errMsg);
         return NextResponse.json({ error: 'Failed to exchange token with Google' }, { status: 500 });
     }
 }

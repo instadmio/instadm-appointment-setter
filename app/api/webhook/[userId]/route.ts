@@ -40,8 +40,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
             workerUrl
         });
 
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : 'Unknown error';
         console.error('Webhook Intake Error:', e);
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: errMsg }, { status: 500 });
     }
 }

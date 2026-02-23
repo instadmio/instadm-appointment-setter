@@ -8,7 +8,7 @@ export class ScrapeService {
         this.apiKey = apiKey;
     }
 
-    async scrapeProfile(username: string) {
+    async scrapeProfile(username: string): Promise<Record<string, unknown> | null> {
         if (!this.apiKey) {
             console.warn('Scraper API Key missing');
             return null;
@@ -30,10 +30,11 @@ export class ScrapeService {
                 }
             );
 
-            return response.data;
-        } catch (error: any) {
-            console.error('Scrape Failed:', error.response?.data || error.message);
-            return null; // Fail gracefully
+            return response.data as Record<string, unknown>;
+        } catch (error: unknown) {
+            const errData = axios.isAxiosError(error) ? error.response?.data : (error instanceof Error ? error.message : error);
+            console.error('Scrape Failed:', errData);
+            return null;
         }
     }
 }
