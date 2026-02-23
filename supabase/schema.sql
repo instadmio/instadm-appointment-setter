@@ -14,6 +14,8 @@ create table if not exists agent_configs (
   prompt_data jsonb default '{}'::jsonb,
   openai_key text,
   manychat_key text,
+  reply_mode text default 'single_block' check (reply_mode in ('single_block', 'conversational')),
+  google_refresh_token text,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()

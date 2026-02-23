@@ -19,17 +19,20 @@ export default async function Dashboard() {
 
     // 1. Fetch Field Definitions
     const fields = [
-        { key: 'agent_name', label: 'Agent Name', type: 'text', default_value: 'AI Assistant', order: 10 },
-        { key: 'agent_backstory', label: 'Agent Persona / Backstory', type: 'textarea', default_value: '', order: 20 },
-        { key: 'business_description', label: 'Business Description & Offer', type: 'textarea', default_value: '', order: 30 },
-        { key: 'knowledge_base', label: 'Knowledge Base (FAQ)', type: 'textarea', default_value: '', order: 40 },
+        { key: 'custom_instructions', label: 'Master System Prompt (Core Behavior)', type: 'textarea', default_value: '', order: 10 },
+        { key: 'agent_name', label: 'Agent Name', type: 'text', default_value: 'AI Assistant', order: 20 },
+        { key: 'agent_backstory', label: 'Agent Persona / Backstory', type: 'textarea', default_value: '', order: 30 },
+        { key: 'business_description', label: 'Business Description & Offer', type: 'textarea', default_value: '', order: 40 },
+        { key: 'knowledge_base', label: 'Knowledge Base (FAQ)', type: 'textarea', default_value: '', order: 50 },
     ] as const;
 
     // 2. Fetch User Config
     let config = {
         prompt_data: {},
         openai_key: '',
-        manychat_key: ''
+        manychat_key: '',
+        reply_mode: 'single_block',
+        google_refresh_token: null
     };
 
     try {

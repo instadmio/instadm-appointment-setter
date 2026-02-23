@@ -19,7 +19,8 @@ export class ManyChatService {
         try {
             // ManyChat often takes one message block at a time or an array
             // We will send messages sequentially if multiple to ensure order
-            for (const msg of messages) {
+            for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
                 console.log(`[ManyChat] Sending to ${subscriberId}: ${msg}`);
                 await axios.post(
                     `${this.baseUrl}/sending/sendContent`,
@@ -32,7 +33,7 @@ export class ManyChatService {
                                 messages: [
                                     {
                                         type: 'text',
-                                        text: msg,
+                                        text: msg.trim(),
                                     }
                                 ]
                             }
@@ -40,6 +41,11 @@ export class ManyChatService {
                     },
                     { headers: this.headers }
                 );
+
+                // Add a realistic 2.5s delay between messages if there are more following
+                if (i < messages.length - 1) {
+                    await new Promise(res => setTimeout(res, 2500));
+                }
             }
         } catch (error: any) {
             console.error('ManyChat Send Content Failed:', error.response?.data || error.message);
