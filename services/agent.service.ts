@@ -386,7 +386,7 @@ export class AgentService {
             recommendations.push(slots[0]);
         }
 
-        return `AVAILABLE SLOTS:\n${recommendations.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nINSTRUCTIONS: Send EACH option as its own separate message. Example: first message "I've got a couple times open 👇", then a separate message "1. ${recommendations[0] || 'Tomorrow at 10am'}", then another separate message "2. ${recommendations[1] || 'Wednesday at 2pm'}". Then ask which works best in a final message. NEVER list both options in one message.`;
+        return `AVAILABLE SLOTS:\n${recommendations.join('\n')}\n\nINSTRUCTIONS: Present these casually — NO numbers, NO bullet points. Send each option as its own separate message like you're texting a friend. Example: first message "I've got a couple of times that could work 👇", then a separate message "${recommendations[0] || 'Tomorrow at 10am'}", then another separate message "${recommendations[1] || 'Wednesday at 2pm'}", then "Which one works better for you?". Keep it conversational — never list them together.`;
     }
 
     private splitIntoConversationalChunks(text: string): string[] {
@@ -466,10 +466,10 @@ export class AgentService {
 
       BOOKING FLOW — follow this exact sequence:
       STEP 1: When the prospect is ready to book, call 'check_calendar_availability' for tomorrow and the next day (2-day range, 9am-5pm).
-      STEP 2: The tool returns 2 options (1 per day). Send EACH option as its own separate message:
-        - First message: "I've got a couple times open 👇"
-        - Second message: "1. [Day] at [Time]"
-        - Third message: "2. [Day] at [Time]"
+      STEP 2: The tool returns 2 options (1 per day). Send EACH option as its own casual message — NO numbers, NO lists:
+        - First message: "I've got a couple of times that could work 👇"
+        - Second message: "[Day] at [Time]"
+        - Third message: "[Day] at [Time]"
         - Fourth message: "Which one works better for you?"
       STEP 3: When the prospect picks a time, ask for their full name and email address before booking.
       STEP 4: Once you have their name and email, call 'book_appointment' with their details in the description.
