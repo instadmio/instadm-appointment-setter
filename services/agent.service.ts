@@ -79,7 +79,26 @@ export class AgentService {
                         toolResult = this.formatAvailabilityResult(busySlots, args.timeMin, args.timeMax);
                     } else if (functionCall.name === 'book_appointment') {
                         const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
-                        toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${new Date(args.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
+                        const readableTime = new Date(args.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+                        toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
+                    } else if (functionCall.name === 'find_booking') {
+                        const event = await calendarService.findEventByQuery(args.query);
+                        if (event) {
+                            const start = event.start?.dateTime ? new Date(event.start.dateTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'unknown time';
+                            toolResult = `Found booking: "${event.summary}" on ${start}. Event ID: ${event.id}. Description: ${event.description || 'none'}`;
+                        } else {
+                            toolResult = 'No upcoming booking found for this person. They may not have a booking, or it may have already passed.';
+                        }
+                    } else if (functionCall.name === 'cancel_booking') {
+                        await calendarService.deleteEvent(args.eventId);
+                        toolResult = 'Booking has been cancelled successfully. Confirm this to the prospect in a friendly way.';
+                    } else if (functionCall.name === 'reschedule_booking') {
+                        const updated = await calendarService.updateEvent(args.eventId, {
+                            startTime: args.newStartTime,
+                            endTime: args.newEndTime,
+                        });
+                        const newTime = new Date(args.newStartTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                        toolResult = `Booking "${updated.summary}" has been rescheduled to ${newTime}. Confirm this to the prospect in a friendly way. Do NOT share any links.`;
                     }
                 } catch (err: unknown) {
                     const errMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -242,10 +261,69 @@ export class AgentService {
                             },
                             description: {
                                 type: 'string',
-                                description: 'Include: prospect name, email, Instagram handle, and any notes from the conversation',
+                                description: 'MUST include all of: Name, Email, Instagram handle (@username), and any conversation notes. Format:\nName: [name]\nEmail: [email]\nInstagram: @[username]\nNotes: [any relevant details]',
                             },
                         },
                         required: ['summary', 'startTime', 'endTime', 'description'],
+                    },
+                },
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'find_booking',
+                    description: 'Searches for an existing upcoming booking by the prospect\'s Instagram username or name. Use this when a prospect wants to cancel or reschedule.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            query: {
+                                type: 'string',
+                                description: 'Search term — use the prospect\'s Instagram username (e.g., "the.real.charlie.b") or name',
+                            },
+                        },
+                        required: ['query'],
+                    },
+                },
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'cancel_booking',
+                    description: 'Cancels an existing booking. You MUST call find_booking first to get the event ID. Confirm with the prospect before cancelling.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            eventId: {
+                                type: 'string',
+                                description: 'The event ID returned by find_booking',
+                            },
+                        },
+                        required: ['eventId'],
+                    },
+                },
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'reschedule_booking',
+                    description: 'Reschedules an existing booking to a new time. You MUST call find_booking first to get the event ID, and check_calendar_availability to find open slots.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            eventId: {
+                                type: 'string',
+                                description: 'The event ID returned by find_booking',
+                            },
+                            newStartTime: {
+                                type: 'string',
+                                description: 'New start time (ISO format)',
+                            },
+                            newEndTime: {
+                                type: 'string',
+                                description: 'New end time (ISO format, typically 1 hour after start)',
+                            },
+                        },
+                        required: ['eventId', 'newStartTime', 'newEndTime'],
                     },
                 },
             }
@@ -397,12 +475,18 @@ export class AgentService {
       STEP 4: Once you have their name and email, call 'book_appointment' with their details in the description.
       STEP 5: Confirm the booking in a friendly way. Do NOT send any links or URLs — just say "You're all booked in for [day] at [time]! Looking forward to it 🙌"
 
+      CANCELLATION / RESCHEDULING FLOW:
+      - If a prospect wants to cancel: call 'find_booking' with their username → confirm the booking details with them → call 'cancel_booking' with the event ID → confirm cancellation.
+      - If a prospect wants to reschedule: call 'find_booking' with their username → confirm current booking → call 'check_calendar_availability' for new dates → present new options → call 'reschedule_booking' with the event ID and new time.
+
       RULES:
       - NEVER suggest a time without checking the calendar first.
       - NEVER book without collecting the prospect's name and email.
       - NEVER share Google Calendar links, event URLs, or any links with the prospect.
       - Only offer times that the tool returned as available.
       - If no times work for the prospect, check the next 3 days.
+      - ALWAYS include the prospect's Instagram username in the booking description so it can be found later.
+      - ALWAYS confirm with the prospect before cancelling or rescheduling.
       ` : ''}
     `;
     }
