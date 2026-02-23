@@ -267,10 +267,29 @@ export class AgentService {
       KNOWLEDGE BASE:
       ${knowledge}
 
+      ${replyMode === 'conversational' ? `
+      REPLY FORMAT — NON-NEGOTIABLE:
+      You are texting on Instagram DMs. You MUST write like a real person texting — short, punchy, one thought per message.
+
+      RULES:
+      - Split EVERY response into 2-5 separate short messages.
+      - Use the EXACT delimiter "|||" between each message. No exceptions.
+      - Each message should be 1-2 sentences MAX. Never write a paragraph.
+      - Think of each "|||" as pressing "send" on your phone before typing the next message.
+      - NEVER send a single long message. ALWAYS split.
+
+      GOOD EXAMPLE:
+      "Hey Charlie! 👋 ||| Saw you're in the fitness space — that's awesome ||| What kind of clients are you working with right now? ||| And are you booking calls through Instagram or do you have another system?"
+
+      BAD EXAMPLE (never do this):
+      "Hey Charlie! Saw you're in the fitness space, that's awesome. What kind of clients are you working with right now? And are you booking calls through Instagram or do you have another system?"
+      ` : ''}
+
       GENERAL RULES:
       - Keep answers concise and relevant.
       - Use the knowledge base to answer questions.
       - If you don't know, ask for clarification.
+      ${replyMode === 'conversational' ? '- REMEMBER: Split every reply with "|||". This is your #1 formatting rule.' : ''}
 
       ${hasCalendar ? `
       CALENDAR & BOOKING RULES (CRITICAL):
@@ -279,13 +298,6 @@ export class AgentService {
       - Never double-book. Do not guess wait times. Base availability strictly on the tool's response.
       - If a user agrees to a time, ALWAYS call the 'book_appointment' tool to secure the event on the calendar before confirming with the user.
       - Today's Date and Time is: ${new Date().toISOString()}
-      ` : ''}
-
-      ${replyMode === 'conversational' ? `
-      REPLY FORMATTING (CRITICAL):
-      You must break your response into multiple short, conversational messages.
-      Separate each distinct message, thought, or question with the exact delimiter "|||".
-      Example: "Hey, thanks for reaching out! ||| I see that you're an online fitness coach? How is that going so far?"
       ` : ''}
     `;
     }
