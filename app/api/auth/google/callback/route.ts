@@ -13,9 +13,10 @@ export async function GET(req: NextRequest) {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     const host = req.headers.get('host');
-    const protocol = host?.includes('localhost') ? 'http' : 'https';
-    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    const baseUrl = appUrl || (host?.includes('localhost') ? `http://${host}` : `https://${host}`);
+    const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
     try {
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -42,10 +43,26 @@ export async function GET(req: NextRequest) {
         if (tokens.refresh_token) {
             const supabase = createServiceClient();
 
-            const { error: updateError } = await supabase
+            const { data: existingConfig } = await supabase
                 .from('agent_configs')
-                .update({ google_refresh_token: tokens.refresh_token })
-                .eq('user_id', userId);
+                .select('user_id')
+                .eq('user_id', userId)
+                .single();
+
+            let updateError = null;
+
+            if (existingConfig) {
+                const { error } = await supabase
+                    .from('agent_configs')
+                    .update({ google_refresh_token: tokens.refresh_token })
+                    .eq('user_id', userId);
+                updateError = error;
+            } else {
+                const { error } = await supabase
+                    .from('agent_configs')
+                    .insert({ user_id: userId, google_refresh_token: tokens.refresh_token });
+                updateError = error;
+            }
 
             if (updateError) {
                 console.error("Supabase update error:", updateError);
@@ -53,7 +70,6 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        const baseUrl = `${protocol}://${host}`;
         return NextResponse.redirect(new URL('/dashboard?calendar=success', baseUrl));
 
     } catch (error: any) {

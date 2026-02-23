@@ -15,9 +15,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Google OAuth credentials not configured' }, { status: 500 });
     }
 
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     const host = req.headers.get('host');
-    const protocol = host?.includes('localhost') ? 'http' : 'https';
-    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    const baseUrl = appUrl || (host?.includes('localhost') ? `http://${host}` : `https://${host}`);
+    const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
     const scopes = [
         'https://www.googleapis.com/auth/calendar.readonly',
