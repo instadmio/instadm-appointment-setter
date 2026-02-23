@@ -18,10 +18,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ use
 
         const qstash = new Client({ token: process.env.QSTASH_TOKEN });
 
-        // Construct the URL to your background worker
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL;
         const host = req.headers.get('host');
-        const protocol = host?.includes('localhost') ? 'http' : 'https';
-        const workerUrl = `${protocol}://${host}/api/worker/${userId}`;
+        const baseUrl = appUrl || (host?.includes('localhost') ? `http://${host}` : `https://${host}`);
+        const workerUrl = `${baseUrl}/api/worker/${userId}`;
 
         // Send payload to Upstash QStash, which instantly responds to us 
         // and then asynchronously pings the heavy /worker endpoint
