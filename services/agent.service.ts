@@ -133,6 +133,9 @@ export class AgentService {
             replies = [rawReply.trim()].filter(Boolean);
         }
 
+        // Strip numbered list prefixes (e.g. "1. ", "2) ") — never conversational
+        replies = replies.map(r => r.replace(/^\d+[.)]\s+/, ''));
+
         // 5. Save to Memory
         try {
             await this.zep.thread.addMessages(sessionId, {
@@ -464,12 +467,17 @@ export class AgentService {
 
       BAD EXAMPLE (never do this):
       "Hey Charlie! Saw you're in the fitness space, that's awesome. What kind of clients are you working with right now? And are you booking calls through Instagram or do you have another system?"
+
+      ANOTHER BAD EXAMPLE (never number things):
+      "1. First you'll need to… 2. Then you'll… 3. Finally…"
+      Instead, send each point as its own separate message using "|||" — no numbers, no bullets, no dashes.
       ` : ''}
 
       GENERAL RULES:
       - Keep answers concise and relevant.
       - Use the knowledge base to answer questions.
       - If you don't know, ask for clarification.
+      - NEVER use numbered lists (1, 2, 3) or bullet points in your messages. You are texting on Instagram DM — real people don't number things in texts. If you need to mention multiple things, send each as its own separate message or weave them naturally into a sentence.
       ${replyMode === 'conversational' ? '- REMEMBER: Split every reply with "|||". This is your #1 formatting rule.' : ''}
 
       ${hasCalendar ? `
