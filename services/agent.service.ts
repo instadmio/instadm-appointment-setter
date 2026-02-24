@@ -88,9 +88,18 @@ export class AgentService {
                         const busySlots = await calendarService.checkAvailability(args.timeMin, args.timeMax);
                         toolResult = this.formatAvailabilityResult(busySlots, calendarTimezone);
                     } else if (functionCall.name === 'book_appointment') {
-                        const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
-                        const readableTime = this.formatDateTime(new Date(args.startTime), calendarTimezone);
-                        toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
+                        // GATE: reject booking if name or email is missing
+                        const desc = (args.description || '').toLowerCase();
+                        const hasEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/.test(desc);
+                        const hasName = /name:\s*\S+/.test(desc);
+
+                        if (!hasEmail || !hasName) {
+                            toolResult = 'BOOKING REJECTED — you MUST collect the prospect\'s full name AND email address BEFORE booking. Ask them now, then call book_appointment again with Name and Email in the description.';
+                        } else {
+                            const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
+                            const readableTime = this.formatDateTime(new Date(args.startTime), calendarTimezone);
+                            toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
+                        }
                     } else if (functionCall.name === 'find_booking') {
                         const event = await calendarService.findEventByQuery(args.query);
                         if (event) {
@@ -531,8 +540,8 @@ export class AgentService {
         - Second message: "[Day] at [time]" (e.g. "Wednesday at 10am")
         - Third message: "[Day] at [time]" (e.g. "Thursday at 2pm")
         - Fourth message: "Which one works better for you?"
-      STEP 3: When the prospect picks a time, ask for their full name and email address before booking.
-      STEP 4: Once you have their name and email, call 'book_appointment' with their details in the description.
+      STEP 3 (MANDATORY — DO NOT SKIP): When the prospect picks a time, you MUST ask for their full name and email address BEFORE booking. Say something like "Amazing! Just need a couple of details to lock it in — what's your full name? ||| And your best email?" Do NOT proceed to Step 4 until you have BOTH a name and an email from the prospect.
+      STEP 4: Once you have BOTH their name AND email (not before), call 'book_appointment' with their details in the description. The booking will be REJECTED by the system if name or email is missing.
       STEP 5: Confirm the booking in a friendly way. Do NOT send any links or URLs — just say "You're all booked in for [day] at [time]! Looking forward to it 🙌"
 
       CANCELLATION / RESCHEDULING FLOW:
@@ -541,7 +550,7 @@ export class AgentService {
 
       RULES:
       - NEVER suggest a time without checking the calendar first.
-      - NEVER book without collecting the prospect's name and email.
+      - NEVER call book_appointment without the prospect's name AND email. The system will reject the booking if either is missing. You must ask for both BEFORE attempting to book.
       - NEVER share Google Calendar links, event URLs, or any links with the prospect.
       - Only offer times that the tool returned as available.
       - If no times work for the prospect, check the next 3 days.
