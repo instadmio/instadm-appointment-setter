@@ -26,6 +26,23 @@ export class CalendarService {
         return data.access_token;
     }
 
+    async getTimezone(): Promise<string> {
+        try {
+            const accessToken = await this.getAccessToken();
+            const response = await fetch(
+                'https://www.googleapis.com/calendar/v3/users/me/settings/timezone',
+                { headers: { 'Authorization': `Bearer ${accessToken}` } }
+            );
+            const data = await response.json();
+            if (data.error) throw new Error(data.error.message);
+            return data.value || 'UTC';
+        } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Error fetching calendar timezone:', errMsg);
+            return 'UTC';
+        }
+    }
+
     async checkAvailability(timeMin: string, timeMax: string): Promise<CalendarBusySlot[]> {
         try {
             const accessToken = await this.getAccessToken();

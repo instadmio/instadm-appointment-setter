@@ -61,14 +61,24 @@ export class AgentService {
         let responseMessage = response.choices[0].message;
         let iterations = 0;
 
+        // Set up calendar service + timezone once (avoids re-fetching each iteration)
+        let calendarService: CalendarService | null = null;
+        let calendarTimezone = 'UTC';
+        if (this.config.google_refresh_token) {
+            calendarService = new CalendarService(this.config.google_refresh_token);
+            try {
+                calendarTimezone = await calendarService.getTimezone();
+            } catch (e) {
+                console.error('Failed to fetch calendar timezone, defaulting to UTC');
+            }
+        }
+
         while (responseMessage.tool_calls && iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
             messages.push(responseMessage);
 
-            const calendarService = new CalendarService(this.config.google_refresh_token as string);
-
             for (const toolCall of responseMessage.tool_calls) {
-                if (toolCall.type !== 'function') continue;
+                if (toolCall.type !== 'function' || !calendarService) continue;
                 const functionCall = toolCall.function;
                 const args = JSON.parse(functionCall.arguments);
                 let toolResult = '';
@@ -76,15 +86,15 @@ export class AgentService {
                 try {
                     if (functionCall.name === 'check_calendar_availability') {
                         const busySlots = await calendarService.checkAvailability(args.timeMin, args.timeMax);
-                        toolResult = this.formatAvailabilityResult(busySlots, args.timeMin, args.timeMax);
+                        toolResult = this.formatAvailabilityResult(busySlots, calendarTimezone);
                     } else if (functionCall.name === 'book_appointment') {
                         const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
-                        const readableTime = this.formatDateTime(new Date(args.startTime));
+                        const readableTime = this.formatDateTime(new Date(args.startTime), calendarTimezone);
                         toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
                     } else if (functionCall.name === 'find_booking') {
                         const event = await calendarService.findEventByQuery(args.query);
                         if (event) {
-                            const start = event.start?.dateTime ? this.formatDateTime(new Date(event.start.dateTime)) : 'unknown time';
+                            const start = event.start?.dateTime ? this.formatDateTime(new Date(event.start.dateTime), calendarTimezone) : 'unknown time';
                             toolResult = `Found booking: "${event.summary}" on ${start}. Event ID: ${event.id}. Description: ${event.description || 'none'}`;
                         } else {
                             toolResult = 'No upcoming booking found for this person. They may not have a booking, or it may have already passed.';
@@ -97,7 +107,7 @@ export class AgentService {
                             startTime: args.newStartTime,
                             endTime: args.newEndTime,
                         });
-                        const newTime = this.formatDateTime(new Date(args.newStartTime));
+                        const newTime = this.formatDateTime(new Date(args.newStartTime), calendarTimezone);
                         toolResult = `Booking "${updated.summary}" has been rescheduled to ${newTime}. Confirm this to the prospect in a friendly way. Do NOT share any links.`;
                     }
                 } catch (err: unknown) {
@@ -333,55 +343,83 @@ export class AgentService {
         ];
     }
 
-    private formatTime(date: Date): string {
-        const hours = date.getHours();
-        const minutes = date.getMinutes();
+    private formatTime(date: Date, timezone: string): string {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: false,
+        }).formatToParts(date);
+        const hours = parseInt(parts.find(p => p.type === 'hour')!.value);
+        const minutes = parseInt(parts.find(p => p.type === 'minute')!.value);
         const ampm = hours >= 12 ? 'pm' : 'am';
         const h = hours % 12 || 12;
         return minutes === 0 ? `${h}${ampm}` : `${h}.${minutes.toString().padStart(2, '0')}${ampm}`;
     }
 
-    private formatDateTime(date: Date): string {
-        const day = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-        return `${day} at ${this.formatTime(date)}`;
+    private formatDateTime(date: Date, timezone: string): string {
+        const day = date.toLocaleDateString('en-US', {
+            timeZone: timezone,
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+        });
+        return `${day} at ${this.formatTime(date, timezone)}`;
     }
 
-    private formatAvailabilityResult(busySlots: { start: string; end: string }[], timeMin: string, timeMax: string): string {
-        // Compute available 1-hour slots during business hours (9am-5pm)
-        // Only check tomorrow and the day after (skip today)
+    /** Convert "9am on Feb 25 in Australia/Sydney" → correct UTC Date */
+    private createTimeInTimezone(year: number, month: number, day: number, hour: number, timezone: string): Date {
+        // Create a UTC date as initial guess
+        const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, 0, 0, 0));
+        // Find the offset between UTC and the target timezone at this moment
+        const utcStr = utcGuess.toLocaleString('en-US', { timeZone: 'UTC' });
+        const tzStr = utcGuess.toLocaleString('en-US', { timeZone: timezone });
+        const offsetMs = new Date(tzStr).getTime() - new Date(utcStr).getTime();
+        // Subtract offset to get the UTC time that corresponds to this local time
+        return new Date(utcGuess.getTime() - offsetMs);
+    }
+
+    private formatAvailabilityResult(busySlots: { start: string; end: string }[], timezone: string): string {
+        // Compute available 1-hour slots during business hours (9am-5pm) in the user's timezone
         const now = new Date();
-        const tomorrow = new Date(now);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(0, 0, 0, 0);
 
-        const endDate = new Date(timeMax);
-        const availableSlots: string[] = [];
+        // Get today's date components in the user's timezone
+        const todayParts = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            year: 'numeric', month: 'numeric', day: 'numeric',
+        }).formatToParts(now);
+        const todayYear = parseInt(todayParts.find(p => p.type === 'year')!.value);
+        const todayMonth = parseInt(todayParts.find(p => p.type === 'month')!.value);
+        const todayDay = parseInt(todayParts.find(p => p.type === 'day')!.value);
 
-        const current = new Date(tomorrow);
+        const availableSlots: { display: string; iso: string; endIso: string }[] = [];
 
-        let daysChecked = 0;
-        while (current <= endDate && daysChecked < 2) {
-            const dayStr = current.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-
+        // Check tomorrow and the day after (2 days)
+        for (let dayOffset = 1; dayOffset <= 2; dayOffset++) {
             for (let hour = 9; hour < 17; hour++) {
-                const slotStart = new Date(current);
-                slotStart.setHours(hour, 0, 0, 0);
-                const slotEnd = new Date(current);
-                slotEnd.setHours(hour + 1, 0, 0, 0);
+                // Create slot start/end in the user's timezone, converted to UTC
+                const slotStartUTC = this.createTimeInTimezone(todayYear, todayMonth, todayDay + dayOffset, hour, timezone);
+                const slotEndUTC = new Date(slotStartUTC.getTime() + 60 * 60 * 1000);
 
                 // Check if this slot overlaps with any busy period
                 const isBusy = busySlots.some(busy => {
                     const busyStart = new Date(busy.start);
                     const busyEnd = new Date(busy.end);
-                    return slotStart < busyEnd && slotEnd > busyStart;
+                    return slotStartUTC < busyEnd && slotEndUTC > busyStart;
                 });
 
                 if (!isBusy) {
-                    availableSlots.push(`${dayStr} at ${this.formatTime(slotStart)}`);
+                    const dayStr = slotStartUTC.toLocaleDateString('en-US', {
+                        timeZone: timezone,
+                        weekday: 'long', month: 'long', day: 'numeric',
+                    });
+                    availableSlots.push({
+                        display: `${dayStr} at ${this.formatTime(slotStartUTC, timezone)}`,
+                        iso: slotStartUTC.toISOString(),
+                        endIso: slotEndUTC.toISOString(),
+                    });
                 }
             }
-            current.setDate(current.getDate() + 1);
-            daysChecked++;
         }
 
         if (availableSlots.length === 0) {
@@ -389,19 +427,21 @@ export class AgentService {
         }
 
         // Pick 1 slot per day (first available)
-        const slotsByDay = new Map<string, string[]>();
+        const slotsByDay = new Map<string, typeof availableSlots>();
         for (const slot of availableSlots) {
-            const day = slot.split(' at ')[0];
+            const day = slot.display.split(' at ')[0];
             if (!slotsByDay.has(day)) slotsByDay.set(day, []);
             slotsByDay.get(day)!.push(slot);
         }
 
-        const recommendations: string[] = [];
+        const recommendations: typeof availableSlots = [];
         for (const [, slots] of slotsByDay) {
             recommendations.push(slots[0]);
         }
 
-        return `AVAILABLE SLOTS:\n${recommendations.join('\n')}\n\nINSTRUCTIONS: Present these casually — NO numbers, NO bullet points. Send each option as its own separate message. Start with an enthusiastic affirmative like "Perfect!" or "Great!" or "Awesome!", then say you've got some times, then each time as its own message, then ask which works. Example flow:\n"Perfect! Let me check what's open 👇"\n"${recommendations[0] || 'Tomorrow at 10am'}"\n"${recommendations[1] || 'Wednesday at 2pm'}"\n"Which one works better for you?"\nKeep it conversational — never list them together.`;
+        const slotLines = recommendations.map(r => `${r.display} [START: ${r.iso} | END: ${r.endIso}]`);
+
+        return `AVAILABLE SLOTS (timezone: ${timezone}):\n${slotLines.join('\n')}\n\nINSTRUCTIONS: Present the times casually — NO numbers, NO bullet points. Send each option as its own separate message. Start with an enthusiastic affirmative like "Perfect!" or "Great!" or "Awesome!", then say you've got some times, then each time as its own message, then ask which works. When the prospect picks a time, use the exact ISO timestamps shown in [START/END] above for booking — do NOT calculate times yourself.\n\nExample flow:\n"Perfect! Let me check what's open 👇"\n"${recommendations[0]?.display || 'Tomorrow at 10am'}"\n"${recommendations[1]?.display || 'Wednesday at 2pm'}"\n"Which one works better for you?"\nKeep it conversational — never list them together.`;
     }
 
     private splitIntoConversationalChunks(text: string): string[] {
