@@ -79,12 +79,12 @@ export class AgentService {
                         toolResult = this.formatAvailabilityResult(busySlots, args.timeMin, args.timeMax);
                     } else if (functionCall.name === 'book_appointment') {
                         const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
-                        const readableTime = new Date(args.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+                        const readableTime = this.formatDateTime(new Date(args.startTime));
                         toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
                     } else if (functionCall.name === 'find_booking') {
                         const event = await calendarService.findEventByQuery(args.query);
                         if (event) {
-                            const start = event.start?.dateTime ? new Date(event.start.dateTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'unknown time';
+                            const start = event.start?.dateTime ? this.formatDateTime(new Date(event.start.dateTime)) : 'unknown time';
                             toolResult = `Found booking: "${event.summary}" on ${start}. Event ID: ${event.id}. Description: ${event.description || 'none'}`;
                         } else {
                             toolResult = 'No upcoming booking found for this person. They may not have a booking, or it may have already passed.';
@@ -97,7 +97,7 @@ export class AgentService {
                             startTime: args.newStartTime,
                             endTime: args.newEndTime,
                         });
-                        const newTime = new Date(args.newStartTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                        const newTime = this.formatDateTime(new Date(args.newStartTime));
                         toolResult = `Booking "${updated.summary}" has been rescheduled to ${newTime}. Confirm this to the prospect in a friendly way. Do NOT share any links.`;
                     }
                 } catch (err: unknown) {
@@ -330,6 +330,19 @@ export class AgentService {
         ];
     }
 
+    private formatTime(date: Date): string {
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const ampm = hours >= 12 ? 'pm' : 'am';
+        const h = hours % 12 || 12;
+        return minutes === 0 ? `${h}${ampm}` : `${h}.${minutes.toString().padStart(2, '0')}${ampm}`;
+    }
+
+    private formatDateTime(date: Date): string {
+        const day = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+        return `${day} at ${this.formatTime(date)}`;
+    }
+
     private formatAvailabilityResult(busySlots: { start: string; end: string }[], timeMin: string, timeMax: string): string {
         // Compute available 1-hour slots during business hours (9am-5pm)
         // Only check tomorrow and the day after (skip today)
@@ -361,8 +374,7 @@ export class AgentService {
                 });
 
                 if (!isBusy) {
-                    const timeStr = slotStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-                    availableSlots.push(`${dayStr} at ${timeStr}`);
+                    availableSlots.push(`${dayStr} at ${this.formatTime(slotStart)}`);
                 }
             }
             current.setDate(current.getDate() + 1);
@@ -386,7 +398,7 @@ export class AgentService {
             recommendations.push(slots[0]);
         }
 
-        return `AVAILABLE SLOTS:\n${recommendations.join('\n')}\n\nINSTRUCTIONS: Present these casually — NO numbers, NO bullet points. Send each option as its own separate message like you're texting a friend. Example: first message "I've got a couple of times that could work 👇", then a separate message "${recommendations[0] || 'Tomorrow at 10am'}", then another separate message "${recommendations[1] || 'Wednesday at 2pm'}", then "Which one works better for you?". Keep it conversational — never list them together.`;
+        return `AVAILABLE SLOTS:\n${recommendations.join('\n')}\n\nINSTRUCTIONS: Present these casually — NO numbers, NO bullet points. Send each option as its own separate message. Start with an enthusiastic affirmative like "Perfect!" or "Great!" or "Awesome!", then say you've got some times, then each time as its own message, then ask which works. Example flow:\n"Perfect! Let me check what's open 👇"\n"${recommendations[0] || 'Tomorrow at 10am'}"\n"${recommendations[1] || 'Wednesday at 2pm'}"\n"Which one works better for you?"\nKeep it conversational — never list them together.`;
     }
 
     private splitIntoConversationalChunks(text: string): string[] {
@@ -466,10 +478,10 @@ export class AgentService {
 
       BOOKING FLOW — follow this exact sequence:
       STEP 1: When the prospect is ready to book, call 'check_calendar_availability' for tomorrow and the next day (2-day range, 9am-5pm).
-      STEP 2: The tool returns 2 options (1 per day). Send EACH option as its own casual message — NO numbers, NO lists:
-        - First message: "I've got a couple of times that could work 👇"
-        - Second message: "[Day] at [Time]"
-        - Third message: "[Day] at [Time]"
+      STEP 2: The tool returns 2 options (1 per day). Start with an enthusiastic affirmative, then send EACH option as its own casual message — NO numbers, NO lists:
+        - First message: "Perfect! Let me check what's open 👇" (or "Great!" or "Awesome!")
+        - Second message: "[Day] at [time]" (e.g. "Wednesday at 10am")
+        - Third message: "[Day] at [time]" (e.g. "Thursday at 2pm")
         - Fourth message: "Which one works better for you?"
       STEP 3: When the prospect picks a time, ask for their full name and email address before booking.
       STEP 4: Once you have their name and email, call 'book_appointment' with their details in the description.
@@ -477,7 +489,7 @@ export class AgentService {
 
       CANCELLATION / RESCHEDULING FLOW:
       - If a prospect wants to cancel: call 'find_booking' with their username → confirm the booking details with them → call 'cancel_booking' with the event ID → confirm cancellation.
-      - If a prospect wants to reschedule: call 'find_booking' with their username → confirm current booking → call 'check_calendar_availability' for new dates → present new options → call 'reschedule_booking' with the event ID and new time.
+      - If a prospect wants to reschedule: call 'find_booking' with their username → confirm current booking → call 'check_calendar_availability' for new dates → present new options → when they pick, call 'reschedule_booking' (NOT 'book_appointment') with the event ID and new time. This MOVES the existing booking — it does NOT create a second one. NEVER use 'book_appointment' to reschedule.
 
       RULES:
       - NEVER suggest a time without checking the calendar first.
