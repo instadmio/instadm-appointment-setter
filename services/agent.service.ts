@@ -88,7 +88,7 @@ export class AgentService {
                         const busySlots = await calendarService.checkAvailability(args.timeMin, args.timeMax);
                         toolResult = this.formatAvailabilityResult(busySlots, calendarTimezone);
                     } else if (functionCall.name === 'book_appointment') {
-                        // GATE: reject booking if name or email is missing
+                        // GATE 1: reject if name or email is missing
                         const desc = (args.description || '').toLowerCase();
                         const hasEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/.test(desc);
                         const hasName = /name:\s*\S+/.test(desc);
@@ -96,9 +96,24 @@ export class AgentService {
                         if (!hasEmail || !hasName) {
                             toolResult = 'BOOKING REJECTED — you MUST collect the prospect\'s full name AND email address BEFORE booking. Ask them now, then call book_appointment again with Name and Email in the description.';
                         } else {
-                            const booking = await calendarService.createBooking(args.summary, args.startTime, args.endTime, args.description);
-                            const readableTime = this.formatDateTime(new Date(args.startTime), calendarTimezone);
-                            toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
+                            // GATE 2: check for existing booking (prevent duplicates from reschedule)
+                            const igMatch = (args.description || '').match(/@([\w.]+)/);
+                            if (igMatch) {
+                                const existing = await calendarService.findEventByQuery(igMatch[1]);
+                                if (existing) {
+                                    toolResult = `BOOKING REJECTED — this prospect already has an existing booking: "${existing.summary}" (Event ID: ${existing.id}). Use 'reschedule_booking' with this event ID to move it, or 'cancel_booking' to cancel it first. Do NOT create a second booking.`;
+                                }
+                            }
+
+                            if (!toolResult) {
+                                // FIX: treat GPT-4's ISO as naive local time and convert to correct UTC
+                                const correctedStart = this.correctTimezone(args.startTime, calendarTimezone);
+                                const correctedEnd = this.correctTimezone(args.endTime, calendarTimezone);
+
+                                const booking = await calendarService.createBooking(args.summary, correctedStart, correctedEnd, args.description);
+                                const readableTime = this.formatDateTime(new Date(correctedStart), calendarTimezone);
+                                toolResult = `Booking confirmed! The appointment "${booking.summary}" has been added to the calendar for ${readableTime}. Do NOT share any links — just confirm the booking to the prospect in a friendly way.`;
+                            }
                         }
                     } else if (functionCall.name === 'find_booking') {
                         const event = await calendarService.findEventByQuery(args.query);
@@ -112,11 +127,15 @@ export class AgentService {
                         await calendarService.deleteEvent(args.eventId);
                         toolResult = 'Booking has been cancelled successfully. Confirm this to the prospect in a friendly way.';
                     } else if (functionCall.name === 'reschedule_booking') {
+                        // FIX: treat GPT-4's ISO as naive local time and convert to correct UTC
+                        const correctedStart = this.correctTimezone(args.newStartTime, calendarTimezone);
+                        const correctedEnd = this.correctTimezone(args.newEndTime, calendarTimezone);
+
                         const updated = await calendarService.updateEvent(args.eventId, {
-                            startTime: args.newStartTime,
-                            endTime: args.newEndTime,
+                            startTime: correctedStart,
+                            endTime: correctedEnd,
                         });
-                        const newTime = this.formatDateTime(new Date(args.newStartTime), calendarTimezone);
+                        const newTime = this.formatDateTime(new Date(correctedStart), calendarTimezone);
                         toolResult = `Booking "${updated.summary}" has been rescheduled to ${newTime}. Confirm this to the prospect in a friendly way. Do NOT share any links.`;
                     }
                 } catch (err: unknown) {
@@ -374,6 +393,22 @@ export class AgentService {
             day: 'numeric',
         });
         return `${day} at ${this.formatTime(date, timezone)}`;
+    }
+
+    /**
+     * GPT-4 sends ISO times like 2026-02-25T09:00:00Z when it means "9am local".
+     * This extracts the UTC components (treating them as local) and converts properly.
+     */
+    private correctTimezone(isoString: string, timezone: string): string {
+        const naive = new Date(isoString);
+        const corrected = this.createTimeInTimezone(
+            naive.getUTCFullYear(),
+            naive.getUTCMonth() + 1,
+            naive.getUTCDate(),
+            naive.getUTCHours(),
+            timezone,
+        );
+        return corrected.toISOString();
     }
 
     /** Convert "9am on Feb 25 in Australia/Sydney" → correct UTC Date */
