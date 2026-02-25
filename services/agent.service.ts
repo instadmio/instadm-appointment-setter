@@ -113,6 +113,8 @@ export class AgentService {
                 const args = JSON.parse(functionCall.arguments);
                 let toolResult = '';
 
+                console.log(`[Tool Call] ${functionCall.name}`, JSON.stringify(args));
+
                 try {
                     if (functionCall.name === 'check_calendar_availability') {
                         const busySlots = await calendarService.checkAvailability(args.timeMin, args.timeMax);
@@ -154,17 +156,27 @@ export class AgentService {
                             toolResult = 'No upcoming booking found for this person. They may not have a booking, or it may have already passed.';
                         }
                     } else if (functionCall.name === 'cancel_booking') {
-                        await calendarService.deleteEvent(args.eventId);
-                        toolResult = 'Booking has been cancelled successfully. Confirm this to the prospect in a friendly way.';
+                        // Guard: block cancel when user actually wants to reschedule
+                        const rescheduleIntent = /reschedul|move.*book|change.*time|different.*time|new.*time|switch.*time/i;
+                        if (rescheduleIntent.test(message)) {
+                            toolResult = 'CANCEL BLOCKED — the prospect wants to RESCHEDULE, not cancel. Use "reschedule_booking" with the event ID and new time instead. This preserves their name, email, and notes without re-asking.';
+                        } else {
+                            await calendarService.deleteEvent(args.eventId);
+                            toolResult = 'Booking has been cancelled successfully. Confirm this to the prospect in a friendly way.';
+                        }
                     } else if (functionCall.name === 'reschedule_booking') {
-                        // FIX: treat GPT-4's ISO as naive local time and convert to correct UTC
                         const correctedStart = this.correctTimezone(args.newStartTime, calendarTimezone);
                         const correctedEnd = this.correctTimezone(args.newEndTime, calendarTimezone);
+
+                        console.log(`[Reschedule] eventId=${args.eventId} newStart=${correctedStart} newEnd=${correctedEnd}`);
 
                         const updated = await calendarService.updateEvent(args.eventId, {
                             startTime: correctedStart,
                             endTime: correctedEnd,
                         });
+
+                        console.log(`[Reschedule] Updated event: ${JSON.stringify({ id: updated.id, summary: updated.summary, start: updated.start })}`);
+
                         const newTime = this.formatDateTime(new Date(correctedStart), calendarTimezone);
                         toolResult = `Booking "${updated.summary}" has been rescheduled to ${newTime}. Confirm this to the prospect in a friendly way. Do NOT share any links.`;
                     }
@@ -360,7 +372,7 @@ export class AgentService {
                 type: 'function',
                 function: {
                     name: 'cancel_booking',
-                    description: 'Cancels an existing booking. You MUST call find_booking first to get the event ID. Confirm with the prospect before cancelling.',
+                    description: 'PERMANENTLY deletes a booking. ONLY use when the prospect wants to fully CANCEL (not reschedule). If they want a different time, use reschedule_booking instead — NEVER cancel then rebook.',
                     parameters: {
                         type: 'object',
                         properties: {
@@ -377,7 +389,7 @@ export class AgentService {
                 type: 'function',
                 function: {
                     name: 'reschedule_booking',
-                    description: 'Reschedules an existing booking to a new time. You MUST call find_booking first to get the event ID, and check_calendar_availability to find open slots.',
+                    description: 'REQUIRED for rescheduling — moves an existing booking to a new time while preserving all details (name, email, notes). Call find_booking first for the event ID, then check_calendar_availability for new slots. NEVER use cancel + book_appointment to reschedule.',
                     parameters: {
                         type: 'object',
                         properties: {
@@ -609,9 +621,21 @@ export class AgentService {
       STEP 4: Once you have BOTH their name AND email (not before), call 'book_appointment' with their details in the description. The booking will be REJECTED by the system if name or email is missing.
       STEP 5: Confirm the booking in a friendly way. Do NOT send any links or URLs — just say "You're all booked in for [day] at [time]! Looking forward to it 🙌"
 
-      CANCELLATION / RESCHEDULING FLOW:
-      - If a prospect wants to cancel: call 'find_booking' with their username → confirm the booking details with them → call 'cancel_booking' with the event ID → confirm cancellation.
-      - If a prospect wants to reschedule: call 'find_booking' with their username → confirm current booking → call 'check_calendar_availability' for new dates → present new options → when they pick, call 'reschedule_booking' (NOT 'book_appointment') with the event ID and new time. This MOVES the existing booking — it does NOT create a second one. NEVER use 'book_appointment' to reschedule.
+      RESCHEDULING FLOW (CRITICAL — follow exactly):
+      When a prospect wants to move/change/reschedule their booking:
+      1. Call 'find_booking' with their username → get the event ID
+      2. Confirm their current booking details with them
+      3. Call 'check_calendar_availability' → get new available slots
+      4. Present the new options
+      5. When they pick a time, call 'reschedule_booking' with the event ID + new time
+      IMPORTANT: 'reschedule_booking' MOVES the existing event — it keeps the name, email, and all notes. Do NOT cancel and rebook. Do NOT use 'book_appointment'. Do NOT ask for name or email again. The system will BLOCK cancel attempts during a reschedule.
+
+      CANCELLATION FLOW (only for full cancellations — NOT rescheduling):
+      When a prospect wants to completely cancel and NOT rebook:
+      1. Call 'find_booking' with their username → confirm the booking
+      2. Ask them to confirm they want to CANCEL (not reschedule)
+      3. Call 'cancel_booking' with the event ID
+      4. Confirm the cancellation
 
       RULES:
       - NEVER suggest a time without checking the calendar first.
