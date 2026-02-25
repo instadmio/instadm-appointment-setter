@@ -83,7 +83,7 @@ export class AgentService {
         messages.push(...history, { role: 'user', content: message });
 
         let response = await this.openai.chat.completions.create({
-            model: 'gpt-4',
+            model: 'gpt-4o-mini',
             messages,
             tools: this.config.google_refresh_token ? this.getCalendarTools() : undefined,
         });
@@ -182,7 +182,7 @@ export class AgentService {
             }
 
             response = await this.openai.chat.completions.create({
-                model: 'gpt-4',
+                model: 'gpt-4o-mini',
                 messages,
                 tools: this.config.google_refresh_token ? this.getCalendarTools() : undefined,
             });
@@ -280,7 +280,7 @@ export class AgentService {
     `;
 
         const response = await this.openai.chat.completions.create({
-            model: 'gpt-4',
+            model: 'gpt-4o-mini',
             messages: [{ role: 'system', content: prompt }],
         });
 
