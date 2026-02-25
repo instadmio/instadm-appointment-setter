@@ -91,6 +91,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
         const manychat = new ManyChatService(dbConfig.manychat_key);
 
         // Lead Analysis
+        let profileAnalysis: string | undefined;
         try {
             const subscriber = await manychat.getSubscriber(subscriberId);
             const customFields = subscriber?.custom_fields || {};
@@ -103,6 +104,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
                 if (profileData) {
                     const analysis = await agent.analyzeLead(profileData);
                     const isICP = analysis ? analysis.includes('ICP: Yes') : false;
+                    profileAnalysis = analysis || undefined;
 
                     await manychat.setCustomFields(subscriberId, {
                         icp_status: isICP ? 'Qualified' : 'Unqualified',
@@ -111,6 +113,9 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
                     });
                     await logEvent('success', 'Analysis Complete', { isICP });
                 }
+            } else if (customFields['analysis_raw']) {
+                // Reuse existing analysis from a previous scrape
+                profileAnalysis = String(customFields['analysis_raw']);
             }
         } catch (analysisError: unknown) {
             const errMsg = analysisError instanceof Error ? analysisError.message : 'Unknown error';
@@ -120,7 +125,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
         // Chat Flow & Tools
         try {
             const zepId = username || subscriberId;
-            const replies = await agent.processMessage(userId, zepId, message, { first_name: firstName, username });
+            const replies = await agent.processMessage(userId, zepId, message, { first_name: firstName, username, profile_analysis: profileAnalysis });
 
             if (replies && replies.length > 0) {
                 await manychat.sendContent(subscriberId, replies);

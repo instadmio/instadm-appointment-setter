@@ -84,6 +84,7 @@ export interface CalendarEvent {
 export interface PlatformData {
     first_name?: string
     username?: string
+    profile_analysis?: string
 }
 
 // ─── Component Props ────────────────────────────────────────────

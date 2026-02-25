@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { Save, Loader2 } from 'lucide-react'
 import { useToast, ToastContainer } from '@/components/Toast'
@@ -19,6 +20,7 @@ export default function AgentForm({ initialConfig, fields, userId }: AgentFormPr
     const [replyMode, setReplyMode] = useState(initialConfig.reply_mode || 'single_block')
     const [calendarConnected, setCalendarConnected] = useState(!!initialConfig.google_refresh_token)
     const [webhookUrl, setWebhookUrl] = useState('')
+    const router = useRouter()
     const { toasts, addToast, removeToast } = useToast()
 
     useEffect(() => {
@@ -44,6 +46,7 @@ export default function AgentForm({ initialConfig, fields, userId }: AgentFormPr
 
             if (error) throw error
             addToast('success', 'Configuration saved successfully!')
+            router.refresh()
         } catch (e: unknown) {
             const errMsg = e instanceof Error ? e.message : 'Unknown error'
             console.error(e)

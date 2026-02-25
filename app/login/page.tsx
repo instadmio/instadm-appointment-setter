@@ -1,5 +1,5 @@
-import { headers } from 'next/headers'
 import { createClient } from '@/utils/supabase/server'
+import { createServiceClient } from '@/utils/supabase/service'
 import { redirect } from 'next/navigation'
 
 export default async function Login({
@@ -31,25 +31,35 @@ export default async function Login({
     const signUp = async (formData: FormData) => {
         'use server'
 
-        const origin = (await headers()).get('origin')
         const email = formData.get('email') as string
         const password = formData.get('password') as string
-        const supabase = await createClient()
 
-        const { error } = await supabase.auth.signUp({
+        // Use admin API to bypass GoTrue's strict email validation on multi-part TLDs (.co.nz, .com.au, etc.)
+        const admin = createServiceClient()
+        const { error: createError } = await admin.auth.admin.createUser({
             email,
             password,
-            options: {
-                emailRedirectTo: `${origin}/auth/callback`,
-            },
+            email_confirm: true,
         })
 
-        if (error) {
-            console.error('Sign Up Error:', error);
-            return redirect(`/login?message=${encodeURIComponent(error.message)}`)
+        if (createError) {
+            console.error('Sign Up Error:', createError)
+            return redirect(`/login?message=${encodeURIComponent(createError.message)}`)
         }
 
-        return redirect('/login?message=Check email for confirmation link')
+        // Auto sign-in after account creation
+        const supabase = await createClient()
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        })
+
+        if (signInError) {
+            console.error('Auto Sign-In Error:', signInError)
+            return redirect(`/login?message=Account created! Please sign in.`)
+        }
+
+        return redirect('/dashboard')
     }
 
     return (

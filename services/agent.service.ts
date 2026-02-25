@@ -48,9 +48,17 @@ export class AgentService {
         // 4. Generate Response with Tool Calling Loop
         const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
             { role: 'system', content: systemPrompt },
-            ...history,
-            { role: 'user', content: message },
         ];
+
+        // Inject profile analysis as context for the first message (rapport building)
+        if (platformData.profile_analysis && history.length === 0) {
+            messages.push({
+                role: 'system',
+                content: `LEAD PROFILE (use this to personalize your opening message — reference specific details naturally, don't list them):\n${platformData.profile_analysis}`,
+            });
+        }
+
+        messages.push(...history, { role: 'user', content: message });
 
         let response = await this.openai.chat.completions.create({
             model: 'gpt-4',
