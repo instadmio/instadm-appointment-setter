@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { WebhookLog } from '@/types'
 
 const COMMON_TIMEZONES = [
@@ -44,6 +45,16 @@ function formatLogTime(isoString: string, timezone: string): string {
 export default function LogsTableClient({ logs }: { logs: WebhookLog[] }) {
     const [timezone, setTimezone] = useState<string>('UTC')
     const [mounted, setMounted] = useState(false)
+    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+
+    const toggleRow = (id: string) => {
+        setExpandedRows(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+    }
 
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY)
@@ -96,27 +107,46 @@ export default function LogsTableClient({ logs }: { logs: WebhookLog[] }) {
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                                {logs.map((log) => (
-                                    <tr key={log.id}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {mounted ? formatLogTime(log.created_at, timezone) : '—'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
-                                                ${log.level === 'error' ? 'bg-red-100 text-red-800' :
-                                                    log.level === 'success' ? 'bg-green-100 text-green-800' :
-                                                        'bg-blue-100 text-blue-800'}`}>
-                                                {log.level?.toUpperCase()}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
-                                            {log.event}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-500 max-w-md truncate font-mono">
-                                            {JSON.stringify(log.details)}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {logs.map((log) => {
+                                    const isExpanded = expandedRows.has(log.id)
+                                    const detailsStr = JSON.stringify(log.details, null, 2)
+                                    const isLong = detailsStr.length > 80
+
+                                    return (
+                                        <tr key={log.id} className={isExpanded ? 'bg-gray-50' : ''}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {mounted ? formatLogTime(log.created_at, timezone) : '—'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                                                    ${log.level === 'error' ? 'bg-red-100 text-red-800' :
+                                                        log.level === 'success' ? 'bg-green-100 text-green-800' :
+                                                            'bg-blue-100 text-blue-800'}`}>
+                                                    {log.level?.toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                                                {log.event}
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-500 max-w-md font-mono">
+                                                {isExpanded ? (
+                                                    <pre className="whitespace-pre-wrap break-words text-xs">{detailsStr}</pre>
+                                                ) : (
+                                                    <span className="truncate block">{JSON.stringify(log.details)}</span>
+                                                )}
+                                                {isLong && (
+                                                    <button
+                                                        onClick={() => toggleRow(log.id)}
+                                                        className="mt-1 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                                                    >
+                                                        {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                                        {isExpanded ? 'Collapse' : 'Expand'}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                         </table>
                     </div>
