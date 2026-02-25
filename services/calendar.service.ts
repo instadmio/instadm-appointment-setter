@@ -79,7 +79,16 @@ export class CalendarService {
         try {
             const accessToken = await this.getAccessToken();
 
-            const event = {
+            // Extract attendee email from description (format: "Email: someone@example.com")
+            const attendees: { email: string }[] = [];
+            if (description) {
+                const emailMatch = description.match(/[Ee]mail:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                if (emailMatch) {
+                    attendees.push({ email: emailMatch[1] });
+                }
+            }
+
+            const event: Record<string, unknown> = {
                 summary,
                 description,
                 start: { dateTime: startTime },
@@ -87,7 +96,11 @@ export class CalendarService {
                 reminders: { useDefault: true },
             };
 
-            const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+            if (attendees.length > 0) {
+                event.attendees = attendees;
+            }
+
+            const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -150,7 +163,7 @@ export class CalendarService {
             const accessToken = await this.getAccessToken();
 
             const response = await fetch(
-                `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+                `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}?sendUpdates=all`,
                 {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${accessToken}` },
@@ -179,7 +192,7 @@ export class CalendarService {
             if (updates.endTime) patch.end = { dateTime: updates.endTime };
 
             const response = await fetch(
-                `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+                `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}?sendUpdates=all`,
                 {
                     method: 'PATCH',
                     headers: {
