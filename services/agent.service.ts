@@ -50,11 +50,33 @@ export class AgentService {
             { role: 'system', content: systemPrompt },
         ];
 
-        // Inject profile analysis as context for the first message (rapport building)
-        if (platformData.profile_analysis && history.length === 0) {
+        // Inject profile data so the AI knows who it's talking to and can build rapport
+        if (platformData.profile_raw || platformData.profile_analysis) {
+            let profileContext = 'LEAD PROFILE (use this to personalize your messages — reference specific details naturally, don\'t list them):\n';
+            if (platformData.profile_raw) {
+                const p = platformData.profile_raw as Record<string, unknown>;
+                const profile = p.profile as Record<string, unknown> | undefined;
+                const posts = p.posts as Array<Record<string, unknown>> | undefined;
+                if (profile) {
+                    profileContext += `Name: ${profile.full_name || 'Unknown'}\n`;
+                    profileContext += `Bio: ${profile.biography || 'None'}\n`;
+                    profileContext += `Followers: ${profile.followers || 'Unknown'}\n`;
+                    profileContext += `Category: ${profile.category || 'Unknown'}\n`;
+                    profileContext += `Website: ${profile.external_url_linkshimmed || profile.homepage || 'None'}\n`;
+                }
+                if (posts && posts.length > 0) {
+                    profileContext += `Recent posts:\n`;
+                    for (const post of posts.slice(0, 3)) {
+                        profileContext += `- "${post.caption || 'No caption'}"\n`;
+                    }
+                }
+            }
+            if (platformData.profile_analysis) {
+                profileContext += `\nAnalysis:\n${platformData.profile_analysis}`;
+            }
             messages.push({
                 role: 'system',
-                content: `LEAD PROFILE (use this to personalize your opening message — reference specific details naturally, don't list them):\n${platformData.profile_analysis}`,
+                content: profileContext,
             });
         }
 

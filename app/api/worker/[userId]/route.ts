@@ -92,6 +92,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
 
         // Lead Analysis
         let profileAnalysis: string | undefined;
+        let profileRaw: Record<string, unknown> | undefined;
         try {
             const subscriber = await manychat.getSubscriber(subscriberId);
             const customFields = subscriber?.custom_fields || {};
@@ -102,6 +103,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
                 const profileData = await scraper.scrapeProfile(username);
 
                 if (profileData) {
+                    profileRaw = profileData;
                     const analysis = await agent.analyzeLead(profileData);
                     const isICP = analysis ? analysis.includes('ICP: Yes') : false;
                     profileAnalysis = analysis || undefined;
@@ -124,8 +126,9 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ userId:
 
         // Chat Flow & Tools
         try {
+            await logEvent('info', 'Chat Context', { hasProfileAnalysis: !!profileAnalysis, hasProfileRaw: !!profileRaw, username, firstName });
             const zepId = username || subscriberId;
-            const replies = await agent.processMessage(userId, zepId, message, { first_name: firstName, username, profile_analysis: profileAnalysis });
+            const replies = await agent.processMessage(userId, zepId, message, { first_name: firstName, username, profile_analysis: profileAnalysis, profile_raw: profileRaw });
 
             if (replies && replies.length > 0) {
                 await manychat.sendContent(subscriberId, replies);
